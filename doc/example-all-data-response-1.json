@@ -1,0 +1,76 @@
+{
+  "Timestamp": "2020-07-13 06:43:24",
+  "Kugelventil": {
+    "Geschlossen": false,
+    "Motor_an": false
+  },
+  "Abschaltungsgrund": {
+    "Wassermenge": false,
+    "Durchfluss": false,
+    "Entnahmedauer": false,
+    "Leckagesensor": false
+  },
+  "Status": {
+    "Gesamtwassermenge": {
+      "intern": 19500,
+      "offset": 0,
+      "total": 19500
+    },
+    "Urlaubsmodus": false,
+    "Standbymodus": false
+  },
+  "Stoerung": {
+    "Aktuell_gestoert": false,
+    "Anzahl_Motor_Nocken_Defekt": 0,
+    "Anzahl_Verbindung_Notstrom": 4,
+    "Datenverbindung_gestoert": false
+  },
+  "Stromversorgung": {
+    "Quelle": "Stromnetz",
+    "Batterie_ok": true,
+    "Batteriespannung": 18.42098,
+    "Notstrommodulspannung": 36.8772
+  },
+  "Wassermenge": {
+    "Aktuell": 22,
+    "Grenzwert": 500,
+    "Abschaltungen": {
+      "100l": 0,
+      "200l": 0,
+      "500l": 4,
+      "1000l": 0,
+      "2000l": 0,
+      "3000l": 0
+    }
+  },
+  "Durchfluss": {
+    "Aktuell": 3,
+    "Grenzwert": 4000,
+    "Abschaltungen": {
+      "500lh": 0,
+      "1000lh": 0,
+      "2000lh": 0,
+      "3000lh": 0,
+      "4000lh": 0,
+      "5000lh": 0
+    }
+  },
+  "Entnahmezeit": {
+    "Aktuell": 1024,
+    "Grenzwert": 7200,
+    "Abschaltungen": {
+      "6m": 0,
+      "12m": 0,
+      "18m": 0,
+      "30m": 2,
+      "60m": 0,
+      "120m": 2
+    }
+  },
+  "Externe_Anschluesse": {
+    "Eingangssignal_an": false,
+    "Ausgang_Kugelventil_geschlossen": false,
+    "Ausgang_ohne_Stoerung_in_Betrieb": true,
+    "Ausgang_100l_Impuls": false
+  }
+}
