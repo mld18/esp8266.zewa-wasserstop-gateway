@@ -7,40 +7,51 @@
 #include <NTPClient.h>            //https://github.com/arduino-libraries/NTPClient
 #include <WiFiUdp.h>              //for NTPClient
 #include <time.h>                 //for localtime
+#include "EEPROMString.h"         //own module with more convenient EEPROM functions
 
 
 // ----------------------------------------------------------
 // Function style macros
 // ----------------------------------------------------------
 #define DEBUG true
-#define debug(S)   if (DEBUG) { Serial.print(S); }
-#define debugln(S) if (DEBUG) { Serial.println(S); }
+#define debug(...)   if (DEBUG) { Serial.print(__VA_ARGS__); }
+#define debugln(...) if (DEBUG) { Serial.println(__VA_ARGS__); }
 
 // ----------------------------------------------------------
 // Constants
 // ----------------------------------------------------------
 /*
- *  Connect the pin WIFI_RESET_OPERATE_MODE to GND before startup in order to trigger the
- *  start of the configuration console. For normal operation connect it to 3V3.
+ *  Connect the pin WIFI_RESET_OPERATE_MODE to GND in order to trigger the
+ *  start of the configuration console.
  */
 #define WIFI_RESET_OPERATE_MODE D7
 
+/*
+ * Name of the access point when
+ */
 #define WIFI_CONFIG_ACCESS_POINT_NAME "WasserstopGateway"
 
-#define REST_SERVER_HTTP_PORT 80
+#define REST_SERVER_HTTP_PORT 80                   /* TCP port to serve HTTP GET and POST requests */
 
-#define SERIAL_TX_PIN      D6
-#define SERIAL_RX_PIN      D5
-#define SERIAL_BAUD_RATE   9600
-#define SERIAL_UART_MODE   SWSERIAL_8N1
-#define SERIAL_RX_BUF_SIZE 90           /* 01h messages return 81 bytes, so we have a few bytes more as buffer */
+#define SERIAL_TX_PIN      D6                      /* UART/serial to the Wasserstop unit send pin */
+#define SERIAL_RX_PIN      D5                      /* UART/serial to the Wasserstop unit receive pin */
+#define SERIAL_BAUD_RATE   9600                    /* Baud rate to the Wasserstop unit */
+#define SERIAL_UART_MODE   SWSERIAL_8N1            /* UART mode: 8 data bits, no parity bit, 1 stop bit */
+#define SERIAL_RX_BUF_SIZE 90                      /* 01h messages return 81 bytes, so we have a few bytes more as buffer */
 
-#define WASSERSTOP_READ_TIMEOUT_MS 1000
-#define WASSERSTOP_DEFAULT_POLLING_INTERVAL 2000
+#define WASSERSTOP_READ_TIMEOUT_MS 1000            /* Max. wait time between data request and response. */
+#define WASSERSTOP_DEFAULT_POLLING_INTERVAL 2000   /* Request data from Wasserstop about every x milliseconds - provided that a WiFi connection is present */
 
-#define NTP_TIME_OFFSET 2*60*60         /* 2h offset */
+#define NTP_TIME_OFFSET 2*60*60                    /* 2h offset to UTC */
 
 #define NOTIFICATION_PAUSE_INTERVAL 15*60*1000L    /* pause sending push notifications for the same event for at least X milliseconds */
+
+#define EEPROM_ADDR_PUSHOVER_ALREADY_SET  0        /* EEPROM (0): will hold length byte plus strings 'YES' or '-NO' */
+#define EEPROM_ADDR_PUSHOVER_APP_TOKEN    5        /* EEPROM (5): will hold length byte plus 30 character long alphanumeric character array containing the Pushover app token */
+#define EEPROM_ADDR_PUSHOVER_USER_TOKEN   40       /* EEPROM (40): will hold length byte plus 30 character long alphanumeric character array containing the Pushover user/group token */
+
+#define JSON_DOCUMENT_CAPACITY  200                /* Max size for payload in POST calls */
+#define BODY_MIN_LENGTH 12                         /* Minimum size of payload */
 
 // ----------------------------------------------------------
 // Global objects
@@ -51,7 +62,9 @@ boolean restServerRunning = false;
 
 // sending notifications
 Pushover* po = NULL;
-unsigned long lastNotifiedKugelventilGeschlossen = 0;
+String poAppToken;
+String poUserToken;
+unsigned long lastNotifiedKugelventilGeschlossen = 0;    /* Timestamp, when a Pushover notification was send. 0 if no notification has been sent yet. ULONG_MAX if you don't want a refresh */
 unsigned long lastNotifiedStoerung = 0;
 unsigned long lastNotifiedBatterieSchwach = 0;
 unsigned long lastNotifiedBatterieBetrieb = 0;
@@ -71,8 +84,10 @@ ResponseBuffer rb[2];
 int lastValidBufferIdx = 0;
 unsigned long lastPollingTime = 0;
 
+// NTP Client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
+
 
 
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -80,19 +95,9 @@ NTPClient timeClient(ntpUDP);
 // Helper functions
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-void initializePushover() {
-  // TODO: load configuration from EEPROM
-  debugln("Initializing Pushover...");
-
-  String pushoverAppToken = "/* TODO: Should be set via REST call */";
-  String pushoverUserToken = "/* TODO: Should be set via REST call */";
-
-  po = new Pushover(pushoverAppToken, pushoverUserToken, UNSAFE);
-}
-
 boolean waitUntilDataAvailable() {
   for (int i=0; i<WASSERSTOP_READ_TIMEOUT_MS/50 && swSer.available()==0; i++) {
-    yield();
+    yield();   // use the waiting time and let the ESP handle other stuff
     delay(50);
   }
   return swSer.available()>0;
@@ -100,23 +105,11 @@ boolean waitUntilDataAvailable() {
 
 boolean canNotify (unsigned long notificationTimestamp) {
   unsigned long now = millis();
-  return (notificationTimestamp == 0) ||                // unset yet
+  return (notificationTimestamp == 0) ||            // unset yet
          ( NOTIFICATION_PAUSE_INTERVAL <= now &&    // watch out for overruns, we're dealing with unsigned here
            notificationTimestamp < now-NOTIFICATION_PAUSE_INTERVAL );
 }
 
-void sendNotification(String msg, unsigned long* notificationTimestamp = NULL, boolean resetTimestamp = false) {
-  po->setMessage(msg);
-  boolean result = po->send();
-  debug("Notification sent (success: ");
-  debug(result);
-  debug("): ");
-  debugln(msg);
-
-  if (notificationTimestamp != NULL) {
-    *notificationTimestamp = resetTimestamp ? 0 : millis();
-  }
-}
 
 String getFullFormattedTime(time_t rawtime) {
    struct tm* ti;
@@ -137,22 +130,60 @@ boolean isKugelventilOffen() {
   return !isKugelventilGeschlossen();
 }
 
-String getFormattedDuration(unsigned long from, unsigned long till = 0) {
+
+
+
+/* Assumes the given durationString buffer to be 20 bytes large */
+void getFormattedDuration(char* durationString, unsigned long from, unsigned long till = 0) {
   if (till == 0) {
     till = millis();
   } else if (till < from) {
-    return "?";
+    durationString[0] = '?';
+    durationString[1] = '\0';
   }
 
   unsigned long durationSec = (till - from) / 1000L;
-  return String((durationSec <= 120) ? (durationSec + " Sekunden") : (durationSec/60 + " Minuten"));
+  String result = String((durationSec <= 120) ? (durationSec + " Sekunden") : (durationSec/60 + " Minuten"));
+  result.toCharArray(durationString, 20);
 }
+
+bool parseHttpBodyToJson(StaticJsonDocument<JSON_DOCUMENT_CAPACITY>& jsonDocument) {
+  bool result = false;
+
+  // Read HTTP request body
+  String body = httpRestServer.arg("plain");
+  body.trim();
+  debug("Request body (trimmed length: ");
+  debug(body.length());
+  debugln("):");
+  debugln(body);
+
+  if (body.length() >= BODY_MIN_LENGTH) {
+    auto deserializationError = deserializeJson(jsonDocument, body);
+
+    if (deserializationError) {
+      debug("deserializeJson() failed with code ");
+      debugln(deserializationError.c_str());
+    } else {
+      debugln("Parsed JSON is valid.");
+      result = true;
+    }
+  }
+
+  return result;
+}
+
+
 
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // Business Logic Layer
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+// ----------------------------------------------------------
+// Exchange data with Wasserstop unit
+// ----------------------------------------------------------
 void readBetriebsdatenFromWasserstop(ResponseBuffer& resBuf) {
   byte idx = 0;
 
@@ -189,24 +220,14 @@ void readBetriebsdatenFromWasserstop(ResponseBuffer& resBuf) {
     resBuf.crcSum = resBuf.crcSum & 0xFF;
     resBuf.valid = (idx > 0) && (idx == resBuf.len) && (resBuf.crcSum == resBuf.buf[idx-1]);
     resBuf.queryTime = timeClient.getEpochTime();
-    debugln("\n----");
+
     for (int i=0; i<resBuf.len; i++) {
-      if (DEBUG) Serial.print(resBuf.buf[i], HEX);
+      debug(resBuf.buf[i], HEX);
       debug(" ");
     }
 
     debug("\nbufferValid: ");
     debugln(resBuf.valid);
-    if (!resBuf.valid) {
-      debug("idx > 0: ");
-      debugln(idx > 0);
-      debug("idx == resBuf.len: ");
-      debugln(idx == resBuf.len);
-      debug("resBuf.crcSum == resBuf.buf[idx-1]: ");
-      debugln(resBuf.crcSum == resBuf.buf[idx-1]);
-      debug("resBuf.len: ");
-      debugln(resBuf.len);
-    }
 
     digitalWrite(LED_BUILTIN, HIGH);
   }
@@ -217,7 +238,7 @@ boolean sendOpenCloseSignalToWasserstop() {
   swSer.write(0xAA);
   swSer.write(0x02);
 
-  delay(1000);
+  delay(WASSERSTOP_READ_TIMEOUT_MS);
 
   uint8_t response[2];
   for (int i=0; i<2 && waitUntilDataAvailable(); i++) {
@@ -231,7 +252,92 @@ boolean sendOpenCloseSignalToWasserstop() {
   return success;
 }
 
+
+// ----------------------------------------------------------
+// Notifications and Pushover
+// ----------------------------------------------------------
+void sendNotification(const String msg, unsigned long* notificationTimestamp = NULL, boolean resetTimestamp = false) {
+  po->setMessage(msg);
+  boolean result = po->send();
+  debug("Notification sent (success: ");
+  debug(result);
+  debug("): ");
+  debugln(msg);
+
+  if (notificationTimestamp != NULL) {
+    *notificationTimestamp = resetTimestamp ? 0 : millis();
+  }
+}
+
+boolean hasPushoverTokenSettings() {
+  String pushoverSettings;
+  readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, &pushoverSettings);
+
+  debug("Read from EEPROM: '");
+  debug(pushoverSettings);
+  debugln("'");
+
+  return pushoverSettings.length() == 3 && pushoverSettings.equals("YES");
+}
+
+boolean readPushoverSettings(String* pushoverAppToken, String* pushoverUserToken) {
+  boolean hasSettings = hasPushoverTokenSettings();
+
+  if (hasSettings) {
+     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_APP_TOKEN, pushoverAppToken);
+     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken);
+  }
+
+  return hasSettings;
+}
+
+boolean savePushoverSettings(const String& pushoverAppToken, const String& pushoverUserToken) {
+  boolean result = false;
+  boolean appTokenSuccess = writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_APP_TOKEN, pushoverAppToken, 30);
+  boolean userTokenSuccess = writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken, 30);
+
+  if (appTokenSuccess && userTokenSuccess) {
+    debugln("Pushover app Token successfully written to EEPROM. Validating...");
+    
+    String readPushoverAppToken, readPushoverUserToken;
+    readPushoverSettings(&readPushoverAppToken, &readPushoverUserToken);
+    
+    boolean appTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
+    debug("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + appTokenValidated);
+    boolean userTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
+    debug("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + userTokenValidated);
+
+    if (appTokenValidated && userTokenValidated) {
+      String pushoverSet = "YES";
+      writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, pushoverSet);
+      result = true;
+    }
+  }
+
+  if (!result && hasPushoverTokenSettings()) {    // Unset Pushover settings
+    String pushoverSet = "-NO";
+    writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, pushoverSet);
+  }
+
+  return result;
+}
+
+void initializePushover() {
+  debugln("Initializing Pushover...");
+
+  readPushoverSettings(&poAppToken, &poUserToken);
+
+  if (po != NULL) {
+    delete po;
+  }
+  po = new Pushover(poAppToken, poUserToken, UNSAFE);
+}
+
 void sendPushNotificationOnError(ResponseBuffer& resBuf) {
+
+  if (!hasPushoverTokenSettings()) {
+    return;   // Doesn't make sense to check if a notification should be sent, if sending won't be possible
+  }
 
   uint8_t* b = resBuf.buf;
 
@@ -250,6 +356,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
 
   boolean batterieOk = (sb1 & 0x02) == 0;
   boolean batterieBetrieb ((sb1 & 0x01) != 0);
+
+  char durationStr[20];
 
   // Wasserstop is closed
   if (kugelventilGeschlossen) {
@@ -281,7 +389,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedKugelventilGeschlossen != 0) {
-      String msg = "Wasserstop nach " + getFormattedDuration(lastNotifiedKugelventilGeschlossen) + " wieder geöffnet.";
+      getFormattedDuration(durationStr, lastNotifiedKugelventilGeschlossen);
+      String msg = "Wasserstop nach " + String(durationStr) + " wieder geöffnet.";
       sendNotification(msg, &lastNotifiedKugelventilGeschlossen, /*resetTimestamp=*/ true);
     }
   }
@@ -294,7 +403,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedStoerung != 0) {
-      String msg = "Störung nach " + getFormattedDuration(lastNotifiedStoerung) + " wieder beseitigt.";
+      getFormattedDuration(durationStr, lastNotifiedStoerung);
+      String msg = "Störung nach " + String(durationStr) + " wieder beseitigt.";
       sendNotification(msg, &lastNotifiedStoerung, /*resetTimestamp=*/ true);
     }
   }
@@ -307,7 +417,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedBatterieSchwach != 0) {
-      String msg = "Schwacher Batteriezustand nach " + getFormattedDuration(lastNotifiedBatterieSchwach) + " wieder beseitigt.";
+      getFormattedDuration(durationStr, lastNotifiedBatterieSchwach);
+      String msg = "Schwacher Batteriezustand nach " + String(durationStr) + " wieder beseitigt.";
       sendNotification(msg, &lastNotifiedBatterieSchwach, /*resetTimestamp=*/ true);
     }
   }
@@ -320,22 +431,20 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedBatterieBetrieb != 0) {
-      String msg = "Nach " + getFormattedDuration(lastNotifiedBatterieBetrieb) + " wieder zurück im regulären Stromnetzbetrieb.";
+      getFormattedDuration(durationStr, lastNotifiedBatterieBetrieb);
+      String msg = "Nach " + String(durationStr) + " wieder zurück im regulären Stromnetzbetrieb.";
       sendNotification(msg, &lastNotifiedBatterieBetrieb, /*resetTimestamp=*/ true);
     }
   }
-
 }
 
+
+// ----------------------------------------------------------
+// Create JSON response with all data
+// ----------------------------------------------------------
 void decodeRawBetriebsdatenResponse(ResponseBuffer& resBuf, char *output, size_t outputSize) {
   DynamicJsonDocument doc(2048);
   uint8_t* b = resBuf.buf;
-
-  Serial.print("==> resBuf.buf: ");
-  for (int i=0; i<resBuf.len; i++) {
-    Serial.print(b[i], HEX);
-    Serial.print(" ");
-  }
 
   // 3. Byte: Statusbyte 0
   uint8_t sb0 = b[2];
@@ -415,10 +524,9 @@ void decodeRawBetriebsdatenResponse(ResponseBuffer& resBuf, char *output, size_t
   externeAnschluesse["Ausgang_ohne_Stoerung_in_Betrieb"] = (sb1 & 0x40) != 0;
   externeAnschluesse["Ausgang_100l_Impuls"] = (sb1 & 0x80) != 0;
 
-  // TODO: use minified JSON
-  //serializeJson(doc, output, outputSize);
   serializeJsonPretty(doc, output, outputSize);
 }
+
 
 
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -434,17 +542,29 @@ void displayWifiManagerConfigSite() {
     WiFiManager wifiManager;
 
     if (!wifiManager.startConfigPortal(WIFI_CONFIG_ACCESS_POINT_NAME)) {
-      Serial.println("Failed to connect to WiFi");
+      debugln("Failed to connect to WiFi");
       delay(3000);
-      //reset and try again, or maybe put it to deep sleep
-      ESP.reset();  // TODO: Checkout reboot or maybe forward wait endlessly until the config pin is put to HIGH again
-      delay(5000);
+      ESP.restart();
     }
 
-    Serial.print("Connected to WiFi: ");
-    Serial.println(WiFi.SSID());
-    Serial.print("IP address is: ");
-    Serial.println(WiFi.localIP());
+    debug("Connected to WiFi: ");
+    debugln(WiFi.SSID());
+    debug("IP address is: ");
+    debugln(WiFi.localIP());
+
+    if (digitalRead(WIFI_RESET_OPERATE_MODE) == LOW) {
+      debug("Please set config pin back, so the ");
+      debug(WIFI_CONFIG_ACCESS_POINT_NAME);
+      debug(" can restart ");
+
+      while (digitalRead(WIFI_RESET_OPERATE_MODE) == LOW) {
+        debug(".");
+        yield();     // let the ESP execute background tasks and reset watchdog
+        delay(1000);
+      }
+    }
+    debug("\nRestarting...");
+    ESP.restart();
 }
 
 // ----------------------------------------------------------
@@ -473,30 +593,44 @@ void restGetRoot() {
   <h3>Ventil &ouml;ffnen</h3> \n\
   HTTP-Aufruf: <pre>POST http://ip-adresse/ventil-auf</pre> \n\
   CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/ventil-auf</pre> \n\
-  <p>Aktion: Sendet den Befehl zum &Ouml;ffnen an den Wasserstop, falls das Ventil geschlossen ist. Wenn das Ventil in Bewegung ist, wird bis zum Erreichen der Endlage gewartet.</p> \n\
+  <p>Aktion: Sendet den Befehl zum &Ouml;ffnen an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in offener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
   <h3>Ventil schlie&szlig;en</h3> \n\
   HTTP-Aufruf: <pre>POST http://ip-adresse/ventil-zu</pre> \n\
   CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/ventil-zu</pre> \n\
-  <p>Aktion: Sendet den Befehl zum Schlie&szlig;en an den Wasserstop, falls das Ventil geschlossen ist. Wenn das Ventil in Bewegung ist, wird bis zum Erreichen der Endlage gewartet.</p> \n\
+  <p>Aktion: Sendet den Befehl zum Schlie&szlig;en an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in geschlossener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
   <br /> \n\
   <h2>Setzen der Einstellungen</h2> \n\
-  ";
+  <h3>Pushover Tokens setzen</h3> \n";
 
-  /* TODO: We need to have setters for the difference configuration settings. First should be Pushover.
-     After Pushover settings are given, we can send secret tokens to the user that can be used to securely
-     set stuff. */
+  if (!hasPushoverTokenSettings()) {
+    usage += "<div style=\"border:2px solid red;\">Pushover-Einstellungen nicht gesetzt. Bitte zun&auml;chst einstellen.</div>\n";
+  }
+
+  usage += "HTTP-Aufruf: <pre>POST http://ip-adresse/set-pushover-tokens</pre> \n\
+  CURL-Beispiel: <pre>curl -i --request POST --data '{\"app-token\":\"alwucdbvppok4i9g7a44lnvvv3o8qo\", \"user-token\":\"v4kg1pnw7i9hbpvuqap4q96h0krxe5\"}' http://ip-adresse/set-pushover-tokens</pre> \n\
+  <p>Aktion: Speichert die Pushover-Einstellungen im nicht-fl&uuml;chtigen Speicher.</p> \n\
+  Parameter: <em>app-token</em> \n\
+  <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div><br /> \n\
+  <em>user-token</em> \n\
+  <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div> \n\
+  <h3>Wasserstop-Gateway neu starten</h3> \n\
+  HTTP-Aufruf: <pre>POST http://ip-adresse/restart</pre> \n\
+  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/restart</pre> \n\
+  <p>Aktion: Versucht den ESP8266 neu zu starten.</p> \n";
 
   usage.replace("ip-adresse", WiFi.localIP().toString());
   httpRestServer.send(200, "text/html", usage);
 }
 
 void restAllData() {
+  debugln("GET /all-data");
   char output[2048];
   decodeRawBetriebsdatenResponse(rb[lastValidBufferIdx], output, 2048);
   httpRestServer.send(200, "text/html", output);
 }
 
 void restVentilAufZu() {
+  debugln("POST /ventil-auf-zu");
   boolean success = sendOpenCloseSignalToWasserstop();
 
   int responseCode = success ? 200 : 503;
@@ -504,25 +638,60 @@ void restVentilAufZu() {
 }
 
 void restVentilAuf() {
+ debugln("POST /ventil-auf");
  int responseCode = 200;
  if (isKugelventilGeschlossen()) {
   restVentilAufZu();
  } else {
-  // TODO: Check if motor is already closing the valve, if so, schedule valve for re-opening
   httpRestServer.send(424, "text/html", "Valve already open"); // Failed Dependency
  }
 }
 
 void restVentilZu() {
+ debugln("POST /ventil-zu");
  int responseCode = 200;
  if (isKugelventilOffen()) {
   restVentilAufZu();
  } else {
-  // TODO: Check if motor is already opening the valve, if so, schedule valve for re-closing
   httpRestServer.send(424, "text/html", "Valve already closed"); // Failed Dependency
  }
 }
 
+void restSetPushoverTokens() {
+  debugln("POST /set-pushover-tokens");
+
+  StaticJsonDocument<JSON_DOCUMENT_CAPACITY> json;
+  bool validJson = parseHttpBodyToJson(json);
+
+  if (validJson) {
+    String pushoverAppToken = json["app-token"].as<String>();
+    String pushoverUserToken = json["user-token"].as<String>();
+
+    if (pushoverAppToken!=NULL && pushoverAppToken.length()==30) {
+      if (pushoverUserToken!=NULL && pushoverUserToken.length()==30) {
+        boolean success = savePushoverSettings(pushoverAppToken, pushoverUserToken);
+        if (success) {
+          poAppToken = pushoverAppToken;
+          poUserToken = pushoverUserToken;
+          httpRestServer.send(200, "text/html", "Ok");
+        } else {
+          httpRestServer.send(500, "text/html", "Unable to save Pushover tokens");
+        }
+      } else {
+        httpRestServer.send(422, "text/html", "Pushover user token not valid. Must be 30 characters long."); 
+      }
+    } else {
+      httpRestServer.send(422, "text/html", "Pushover app token not valid. Must be 30 characters long."); 
+    }
+  } else {
+    httpRestServer.send(422, "text/html", "JSON in HTTP header invalid"); 
+  }  
+}
+
+void restRestart() {
+  httpRestServer.send(202, "text/html", "Restarting...");
+  ESP.restart();
+}
 
 void startRestService() {
   debugln("Starting REST server");
@@ -532,6 +701,7 @@ void startRestService() {
   httpRestServer.on("/ventil-auf-zu", HTTP_POST, restVentilAufZu);
   httpRestServer.on("/ventil-auf", HTTP_POST, restVentilAuf);
   httpRestServer.on("/ventil-zu", HTTP_POST, restVentilZu);
+  httpRestServer.on("/set-pushover-tokens", HTTP_POST, restSetPushoverTokens);
 
 
   httpRestServer.begin();
@@ -549,7 +719,8 @@ void startRestService() {
 // ----------------------------------------------------------
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n Starting");
+  EEPROM.begin(128); 
+  debugln("\n Starting");
 
   // init serial connection to Wasserstop
   swSer.begin(SERIAL_BAUD_RATE,
@@ -560,7 +731,7 @@ void setup() {
               /*bufCapacity=*/ SERIAL_RX_BUF_SIZE);
 
   // Initialize pins
-  pinMode(WIFI_RESET_OPERATE_MODE, INPUT);
+  pinMode(WIFI_RESET_OPERATE_MODE, INPUT_PULLUP);
 
   // Start NTP Client
   timeClient.begin();
@@ -589,7 +760,7 @@ void loop() {
 
   if (WiFi.status() == WL_CONNECTED) {
     if (lastPollingTime < millis()-WASSERSTOP_DEFAULT_POLLING_INTERVAL) {
-      Serial.println("Request data from Wasserstop...");
+      debugln("Request data from Wasserstop...");
       int nextBufferIdx = lastValidBufferIdx ? 0 : 1;
       readBetriebsdatenFromWasserstop(rb[nextBufferIdx]);
 

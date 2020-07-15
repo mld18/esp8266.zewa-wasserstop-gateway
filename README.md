@@ -21,6 +21,9 @@ Please refer to section [Hardware Setup](#hardware-setup) to learn how to wire u
 ### First Start
 Upon first start you can see a new Wifi access point. Please connect to it. You'll automatically be redirected to a captive portal. Select the Wifi and enter the access code.
 
+### Endpoints
+TODO: describe all endpoints
+
 
 ## Hardware Setup
 ### Schematic
@@ -54,11 +57,16 @@ According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.
 ### TODOs
 For the beginning all open to-dos are listed here:
 
+#### Miscellaneous
+* New endpoint `/set-pushover-tokens` not properly implemented yet (revisit)
+* Scan code for potential memory leaks
+* Time for the timestamp is not adjusted between DST and normal time (inspiration can be found [here](https://forum.arduino.cc/index.php?topic=172044.msg1278536#msg1278536))
+* Soft-limits: if none of the fixed settings suits your needs a soft limit allows for choosing different trigger limits.
+
 #### Missing endpoints
-* Add `/set-pushover-tokens` POST endpoint to initially set the application token and user/group token for the Pushover API
 * Add `/set-wasserzaehler-offset` POST endpoint to map a value of the internal volume counter to the physical water meter.
 * Add `/wasserzaehler` GET endpoint to retrieve the value on the water meter (if offset has been set properly)
-* Add `/reboot` POST endpoint that reboots the gateway
+* If possible, add `/webapp` GET endpoint with a simple AJAX based single page web application that can be used on mobile device (with a home screen icon)
 
 #### Security
 Currently none of the calls is secured. Hence, every client in the WiFi may control the Wasserstop unit. A shared key that is transferred in an HTTP header *similar* to JWT tokens may be a viable solution.
