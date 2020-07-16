@@ -58,10 +58,10 @@ According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.
 For the beginning all open to-dos are listed here:
 
 #### Miscellaneous
-* New endpoint `/set-pushover-tokens` not properly implemented yet (revisit)
 * Scan code for potential memory leaks
 * Time for the timestamp is not adjusted between DST and normal time (inspiration can be found [here](https://forum.arduino.cc/index.php?topic=172044.msg1278536#msg1278536))
 * Soft-limits: if none of the fixed settings suits your needs a soft limit allows for choosing different trigger limits.
+* Added dedicated LED that signals an established WiFi connection
 
 #### Missing endpoints
 * Add `/set-wasserzaehler-offset` POST endpoint to map a value of the internal volume counter to the physical water meter.

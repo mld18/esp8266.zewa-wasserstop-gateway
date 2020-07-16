@@ -14,8 +14,12 @@ boolean writeStringToEEPROM(int addressOffset, const String &str, int maxLength)
   return committed;
 }
 
-void readStringFromEEPROM(int addressOffset, String *strRead) {
+void readStringFromEEPROM(int addressOffset, String *strRead, int maxLength) {
   int len = EEPROM.read(addressOffset);
+  
+  if (maxLength > -1 && maxLength < len) {
+    len = maxLength; // limit to max length if shorter than the actual length
+  }
   char data[len + 1];
 
   for (int i=0; i<len; i++) {

@@ -8,6 +8,9 @@
 #include <WiFiUdp.h>              //for NTPClient
 #include <time.h>                 //for localtime
 #include "EEPROMString.h"         //own module with more convenient EEPROM functions
+extern "C" {
+  #include "user_interface.h"     //used to set hostname
+}
 
 
 // ----------------------------------------------------------
@@ -269,23 +272,38 @@ void sendNotification(const String msg, unsigned long* notificationTimestamp = N
   }
 }
 
+void unsetPushoverSettings() {
+  String pushoverSet = "-NO";
+  debugln("Unsetting/initializing Pushover settings in EEPROM...");
+  writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, pushoverSet);
+}
+
 boolean hasPushoverTokenSettings() {
   String pushoverSettings;
-  readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, &pushoverSettings);
+  readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, &pushoverSettings, 4);
 
   debug("Read from EEPROM: '");
   debug(pushoverSettings);
   debugln("'");
 
-  return pushoverSettings.length() == 3 && pushoverSettings.equals("YES");
+  boolean result = pushoverSettings.length() == 3 && pushoverSettings.equals("YES");
+  if (!result && !pushoverSettings.equals("-NO")) {
+    unsetPushoverSettings(); // upon first read -> invalid/uninitialized field in memory
+  }
+  return result;
 }
 
-boolean readPushoverSettings(String* pushoverAppToken, String* pushoverUserToken) {
+boolean readPushoverSettings(String* pushoverAppToken, String* pushoverUserToken, boolean ignoreHasSettings = false) {
   boolean hasSettings = hasPushoverTokenSettings();
 
-  if (hasSettings) {
-     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_APP_TOKEN, pushoverAppToken);
-     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken);
+  if (hasSettings || ignoreHasSettings) {
+    debug("Read Pushover settings from EEPROM. App token: '");
+    readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_APP_TOKEN, pushoverAppToken);
+    debug(*pushoverAppToken);
+    debug("'. User token: '");
+    readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken);
+    debug(*pushoverUserToken);
+    debugln("'.");
   }
 
   return hasSettings;
@@ -300,12 +318,12 @@ boolean savePushoverSettings(const String& pushoverAppToken, const String& pusho
     debugln("Pushover app Token successfully written to EEPROM. Validating...");
     
     String readPushoverAppToken, readPushoverUserToken;
-    readPushoverSettings(&readPushoverAppToken, &readPushoverUserToken);
+    readPushoverSettings(&readPushoverAppToken, &readPushoverUserToken, /*ignoreHasSettings=*/ true);
     
     boolean appTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
-    debug("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + appTokenValidated);
-    boolean userTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
-    debug("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + userTokenValidated);
+    debugln("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + appTokenValidated);
+    boolean userTokenValidated = pushoverUserToken.equals(readPushoverUserToken);
+    debugln("Pushover app token: '" + pushoverUserToken + "' equals '" + readPushoverUserToken + "'? -> " + userTokenValidated);
 
     if (appTokenValidated && userTokenValidated) {
       String pushoverSet = "YES";
@@ -613,6 +631,10 @@ void restGetRoot() {
   <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div><br /> \n\
   <em>user-token</em> \n\
   <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div> \n\
+  <h3>Pushover-Benachrichtigung testen</h3> \n\
+  HTTP-Aufruf: <pre>POST http://ip-adresse/test-notification</pre> \n\
+  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/test-notification</pre> \n\
+  <p>Aktion: Sendet eine Test-Benachrichtigung, wenn Pushover richtig konfiguriert ist..</p> \n\
   <h3>Wasserstop-Gateway neu starten</h3> \n\
   HTTP-Aufruf: <pre>POST http://ip-adresse/restart</pre> \n\
   CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/restart</pre> \n\
@@ -673,6 +695,7 @@ void restSetPushoverTokens() {
         if (success) {
           poAppToken = pushoverAppToken;
           poUserToken = pushoverUserToken;
+          initializePushover();
           httpRestServer.send(200, "text/html", "Ok");
         } else {
           httpRestServer.send(500, "text/html", "Unable to save Pushover tokens");
@@ -688,7 +711,19 @@ void restSetPushoverTokens() {
   }  
 }
 
+void restSendTestNotification() {
+  debugln("POST /test-notification");
+
+  if (hasPushoverTokenSettings()) {
+    sendNotification("Test-Benachrichtigung");
+    httpRestServer.send(200, "text/html", "Ok");
+  } else {
+    httpRestServer.send(423, "text/html", "Pushover app tokens are not configured properly."); 
+  }
+}
+
 void restRestart() {
+  debugln("POST /restart");
   httpRestServer.send(202, "text/html", "Restarting...");
   ESP.restart();
 }
@@ -702,11 +737,14 @@ void startRestService() {
   httpRestServer.on("/ventil-auf", HTTP_POST, restVentilAuf);
   httpRestServer.on("/ventil-zu", HTTP_POST, restVentilZu);
   httpRestServer.on("/set-pushover-tokens", HTTP_POST, restSetPushoverTokens);
-
+  httpRestServer.on("/test-notification", HTTP_POST, restSendTestNotification);
+  httpRestServer.on("/restart", HTTP_POST, restRestart);
 
   httpRestServer.begin();
   restServerRunning = true;
 }
+
+
 
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -736,6 +774,9 @@ void setup() {
   // Start NTP Client
   timeClient.begin();
   timeClient.setTimeOffset(NTP_TIME_OFFSET);
+
+  // Initialize hostname of ESP8266
+  wifi_station_set_hostname(WIFI_CONFIG_ACCESS_POINT_NAME);
 }
 
 
