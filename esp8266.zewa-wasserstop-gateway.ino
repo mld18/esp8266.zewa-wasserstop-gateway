@@ -134,20 +134,16 @@ boolean isKugelventilOffen() {
 }
 
 
-
-
 /* Assumes the given durationString buffer to be 20 bytes large */
-void getFormattedDuration(char* durationString, unsigned long from, unsigned long till = 0) {
+void getFormattedDuration(String* durationString, unsigned long from, unsigned long till = 0) {
   if (till == 0) {
     till = millis();
   } else if (till < from) {
-    durationString[0] = '?';
-    durationString[1] = '\0';
+    *durationString = String("?");
   }
 
   unsigned long durationSec = (till - from) / 1000L;
-  String result = String((durationSec <= 120) ? (durationSec + " Sekunden") : (durationSec/60 + " Minuten"));
-  result.toCharArray(durationString, 20);
+  *durationString = String((durationSec <= 120) ? (durationSec + " Sekunden") : (durationSec/60 + " Minuten"));
 }
 
 bool parseHttpBodyToJson(StaticJsonDocument<JSON_DOCUMENT_CAPACITY>& jsonDocument) {
@@ -375,7 +371,7 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
   boolean batterieOk = (sb1 & 0x02) == 0;
   boolean batterieBetrieb ((sb1 & 0x01) != 0);
 
-  char durationStr[20];
+  String durationStr;
 
   // Wasserstop is closed
   if (kugelventilGeschlossen) {
@@ -407,8 +403,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedKugelventilGeschlossen != 0) {
-      getFormattedDuration(durationStr, lastNotifiedKugelventilGeschlossen);
-      String msg = "Wasserstop nach " + String(durationStr) + " wieder geöffnet.";
+      getFormattedDuration(&durationStr, lastNotifiedKugelventilGeschlossen);
+      String msg = "Wasserstop nach " + durationStr + " wieder geöffnet.";
       sendNotification(msg, &lastNotifiedKugelventilGeschlossen, /*resetTimestamp=*/ true);
     }
   }
@@ -421,8 +417,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedStoerung != 0) {
-      getFormattedDuration(durationStr, lastNotifiedStoerung);
-      String msg = "Störung nach " + String(durationStr) + " wieder beseitigt.";
+      getFormattedDuration(&durationStr, lastNotifiedStoerung);
+      String msg = "Störung nach " + durationStr + " wieder beseitigt.";
       sendNotification(msg, &lastNotifiedStoerung, /*resetTimestamp=*/ true);
     }
   }
@@ -435,8 +431,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedBatterieSchwach != 0) {
-      getFormattedDuration(durationStr, lastNotifiedBatterieSchwach);
-      String msg = "Schwacher Batteriezustand nach " + String(durationStr) + " wieder beseitigt.";
+      getFormattedDuration(&durationStr, lastNotifiedBatterieSchwach);
+      String msg = "Schwacher Batteriezustand nach " + durationStr + " wieder beseitigt.";
       sendNotification(msg, &lastNotifiedBatterieSchwach, /*resetTimestamp=*/ true);
     }
   }
@@ -449,8 +445,8 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     }
   } else {
     if (lastNotifiedBatterieBetrieb != 0) {
-      getFormattedDuration(durationStr, lastNotifiedBatterieBetrieb);
-      String msg = "Nach " + String(durationStr) + " wieder zurück im regulären Stromnetzbetrieb.";
+      getFormattedDuration(&durationStr, lastNotifiedBatterieBetrieb);
+      String msg = "Nach " + durationStr + " wieder zurück im regulären Stromnetzbetrieb.";
       sendNotification(msg, &lastNotifiedBatterieBetrieb, /*resetTimestamp=*/ true);
     }
   }
