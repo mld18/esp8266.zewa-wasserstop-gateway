@@ -6,9 +6,11 @@ This project aims to integrate the [Judo ZEWA Wasserstop](https://judo.eu/produk
 ## Disclaimer
 ### No Warranty / No Liability Statement
 Although already stated in the appended [License file](./LICENSE) let's be crystal clear: Use this software and the described hardware setup *AT YOUR OWN RISK*. Be aware, if you screw up something in your setup you may destroy the Wasserstop unit or any other part involved.
+
 ### Personal Statement
 * I'm *not* associated in any kind with the vendor of the Judo ZEWA Wasserstop system, i.e. [Judo Wasseraufbereitung GmbH](https://judo.eu)
 * Please do *not* contact me or any other committer of this project for sales, consulting or advice like "Where can I buy XYZ?", "Can I purchase a cable from you?", etc.
+
 ### Collaboration and Ideas are welcome
 After all the DON'Ts above let's also be clear: if you have specific questions, ideas or a feature request you are highly welcome to join and contribute.
 
@@ -22,11 +24,79 @@ Please refer to section [Hardware Setup](#hardware-setup) to learn how to wire u
 Upon first start you can see a new Wifi access point. Please connect to it. You'll automatically be redirected to a captive portal. Select the Wifi and enter the access code.
 
 ### Endpoints
-TODO: describe all endpoints
 
-#### /webapp
+#### `/webapp` (GET, no parameters)
 Displays a single web application (SWA). The web app is based on AJAX and perodically polls data from the /all-data endpoint (see above). On iOS this web app can be opened with Safari and an app icon can be placed on the home screen.
-![Look and feel of the webapp SWA on an iPhone](doc/example_webapp_screen.png "Look and feel of the webapp SWA on an iPhone")
+
+##### Look and feel of the webapp SWA on an iPhone:
+<img src="doc/example_webapp_screen.png" alt="Look and feel of the webapp SWA on an iPhone" width="200" />
+
+
+#### `/all-data` Read operational data from Wasserstop
+Returns a JSON objects containing the last valid set of data retrieved from the Wasserstop. This gateway periodically polls for the data from the Wasserstop. `/all-data` renders this data into a JSON response.
+
+| Endpoint     	    | `/all-data`                                              	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `GET`                                                    	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request GET http://WasserstopGateway/all-data`	|
+| Example response  | [Example JSON response](doc/example-all-data-response-1.json) |
+
+
+#### `/ventil-auf-zu` Toggle valve in Wasserstop
+Changes state of valve in Wasserstop from closed to open or vice versa. The Wasserstop will only process this command if the valve is currently *not* in motion.
+
+| Endpoint     	    | `/ventil-auf-zu`                                         	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                    	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request POST http://WasserstopGateway/ventil-auf-zu`	|
+
+#### `/ventil-zu` Close valve in Wasserstop
+If the valve in the Wasserstop is opened this command with close the valve. If the valve is already closed this command has no effect. The Wasserstop will only process this command if the valve is currently *not* in motion.
+
+| Endpoint     	    | `/ventil-zu`                                         	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                   	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request POST http://WasserstopGateway/ventil-zu`	|
+
+#### `/ventil-auf` Open valve in Wasserstop
+If the valve in the Wasserstop is closed this command with open the valve. If the valve is already opened this command has no effect. The Wasserstop will only process this command if the valve is currently *not* in motion.
+
+| Endpoint     	    | `/ventil-auf`                                         	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                   	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request POST http://WasserstopGateway/ventil-auf`	|
+
+#### `/set-pushover-tokens` Set the app/user token required to send push notifications via Pushover
+The Wasserstop gateway supports sending push notifications via [Pushover.net](https://www.pushover.net) (commercial app, pay once).
+
+| Endpoint     	    | `/set-pushover-tokens`                                   	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                    	|
+| Parameters      	| Parameter:<br />`app-token`: 30 Zeichen langer alphanumerischer String<br />`user-token`: 30 Zeichen langer alphanumerischer String	|
+| Example request 	| `curl -i --request POST --data '{"app-token":"alwucdbvppok4i9g7a44lnvvv3o8qo", "user-token":"v4kg1pnw7i9hbpvuqap4q96h0krxe5"}' http://192.168.178.62/set-pushover-tokens`	|
+
+#### `/test-notification` Send test push notification
+If the authentication tokens for [Pushover.net](https://www.pushover.net) have been set (-> `/set-pushover-tokens`) this endpoint can be used to trigger a test push notification.
+
+| Endpoint     	    | `/test-notification`                                         	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                   	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request POST http://WasserstopGateway/test-notification`	|
+
+#### `/restart` Restarts the ESP8266
+Use this endpoint to trigger a restart of the ESP8266.
+
+| Endpoint     	    | `/restart`                                         	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                   	|
+| Parameters      	| none                                                    	|
+| Example request 	| `curl -i --request POST http://WasserstopGateway/restart`	|
+
 
 
 ## Hardware Setup
