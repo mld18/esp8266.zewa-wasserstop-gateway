@@ -8,6 +8,7 @@
 #include <WiFiUdp.h>              //for NTPClient
 #include <time.h>                 //for localtime
 #include "EEPROMString.h"         //own module with more convenient EEPROM functions
+#include <pgmspace.h>
 extern "C" {
   #include "user_interface.h"     //used to set hostname
 }
@@ -17,8 +18,9 @@ extern "C" {
 // Function style macros
 // ----------------------------------------------------------
 #define DEBUG true
-#define debug(...)   if (DEBUG) { Serial.print(__VA_ARGS__); }
-#define debugln(...) if (DEBUG) { Serial.println(__VA_ARGS__); }
+#define debugf(fmt_s, ...)  if (DEBUG) { Serial.printf_P((PGM_P) PSTR(fmt_s), ## __VA_ARGS__); }
+#define debugfln(fmt_s, ...) if (DEBUG) { Serial.printf_P((PGM_P) PSTR(fmt_s"\n"), ## __VA_ARGS__); }
+
 
 // ----------------------------------------------------------
 // Constants
@@ -53,8 +55,12 @@ extern "C" {
 #define EEPROM_ADDR_PUSHOVER_APP_TOKEN    5        /* EEPROM (5): will hold length byte plus 30 character long alphanumeric character array containing the Pushover app token */
 #define EEPROM_ADDR_PUSHOVER_USER_TOKEN   40       /* EEPROM (40): will hold length byte plus 30 character long alphanumeric character array containing the Pushover user/group token */
 
+#define WEBAPP_POLLING_INTERVAL 2500               /* Request data from this gateway about every x milliseconds */
+
 #define JSON_DOCUMENT_CAPACITY  200                /* Max size for payload in POST calls */
 #define BODY_MIN_LENGTH 12                         /* Minimum size of payload */
+
+#define TEXT_HTML F("text/html")                   /* Contant for return content type */
 
 // ----------------------------------------------------------
 // Global objects
@@ -114,14 +120,11 @@ boolean canNotify (unsigned long notificationTimestamp) {
 }
 
 
-String getFullFormattedTime(time_t rawtime) {
+template<size_t N> void getFullFormattedTime(char(&result)[N], time_t rawtime) {
    struct tm* ti;
    ti = localtime (&rawtime);
 
-   char buffer[26];
-   strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", ti);
-
-   return String(buffer);
+   strftime(result, 26, "%Y-%m-%d %H:%M:%S", ti);
 }
 
 boolean isKugelventilGeschlossen() {
@@ -133,17 +136,21 @@ boolean isKugelventilOffen() {
   return !isKugelventilGeschlossen();
 }
 
-
-/* Assumes the given durationString buffer to be 20 bytes large */
-void getFormattedDuration(String* durationString, unsigned long from, unsigned long till = 0) {
+template<size_t N> void getFormattedDuration(char (&result)[N], unsigned long from, unsigned long till = 0) {
   if (till == 0) {
     till = millis();
-  } else if (till < from) {
-    *durationString = String("?");
   }
-
-  unsigned long durationSec = (till - from) / 1000L;
-  *durationString = String((durationSec <= 120) ? (durationSec + " Sekunden") : (durationSec/60 + " Minuten"));
+  
+  if (till < from) {
+    strncpy(result, "?", N);
+  } else {
+    unsigned long durationSec = (till - from) / 1000L;
+    if (durationSec <= 120) {
+      snprintf_P(result, N, PSTR("%ld Sekunden"), durationSec);
+    } else {
+      snprintf_P(result, N, PSTR("%ld Minuten"), durationSec/60);
+    }
+  }
 }
 
 bool parseHttpBodyToJson(StaticJsonDocument<JSON_DOCUMENT_CAPACITY>& jsonDocument) {
@@ -152,19 +159,15 @@ bool parseHttpBodyToJson(StaticJsonDocument<JSON_DOCUMENT_CAPACITY>& jsonDocumen
   // Read HTTP request body
   String body = httpRestServer.arg("plain");
   body.trim();
-  debug("Request body (trimmed length: ");
-  debug(body.length());
-  debugln("):");
-  debugln(body);
 
   if (body.length() >= BODY_MIN_LENGTH) {
     auto deserializationError = deserializeJson(jsonDocument, body);
 
     if (deserializationError) {
-      debug("deserializeJson() failed with code ");
-      debugln(deserializationError.c_str());
+      debugf("deserializeJson() failed with code ");
+      if (DEBUG) { Serial.println(deserializationError.c_str()); }
     } else {
-      debugln("Parsed JSON is valid.");
+      debugfln("Parsed JSON is valid.");
       result = true;
     }
   }
@@ -221,12 +224,10 @@ void readBetriebsdatenFromWasserstop(ResponseBuffer& resBuf) {
     resBuf.queryTime = timeClient.getEpochTime();
 
     for (int i=0; i<resBuf.len; i++) {
-      debug(resBuf.buf[i], HEX);
-      debug(" ");
+      debugf("%02X ", resBuf.buf[i]);
     }
 
-    debug("\nbufferValid: ");
-    debugln(resBuf.valid);
+    debugfln("\nbufferValid: %i", resBuf.valid);
 
     digitalWrite(LED_BUILTIN, HIGH);
   }
@@ -258,10 +259,7 @@ boolean sendOpenCloseSignalToWasserstop() {
 void sendNotification(const String msg, unsigned long* notificationTimestamp = NULL, boolean resetTimestamp = false) {
   po->setMessage(msg);
   boolean result = po->send();
-  debug("Notification sent (success: ");
-  debug(result);
-  debug("): ");
-  debugln(msg);
+  debugfln("Notification sent (success: %d): %s", result, msg.c_str());
 
   if (notificationTimestamp != NULL) {
     *notificationTimestamp = resetTimestamp ? 0 : millis();
@@ -270,7 +268,7 @@ void sendNotification(const String msg, unsigned long* notificationTimestamp = N
 
 void unsetPushoverSettings() {
   String pushoverSet = "-NO";
-  debugln("Unsetting/initializing Pushover settings in EEPROM...");
+  debugfln("Unsetting/initializing Pushover settings in EEPROM...");
   writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, pushoverSet);
 }
 
@@ -278,9 +276,7 @@ boolean hasPushoverTokenSettings() {
   String pushoverSettings;
   readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_ALREADY_SET, &pushoverSettings, 4);
 
-  debug("Read from EEPROM: '");
-  debug(pushoverSettings);
-  debugln("'");
+  debugfln("Read from EEPROM: '%s'", pushoverSettings.c_str());
 
   boolean result = pushoverSettings.length() == 3 && pushoverSettings.equals("YES");
   if (!result && !pushoverSettings.equals("-NO")) {
@@ -293,13 +289,9 @@ boolean readPushoverSettings(String* pushoverAppToken, String* pushoverUserToken
   boolean hasSettings = hasPushoverTokenSettings();
 
   if (hasSettings || ignoreHasSettings) {
-    debug("Read Pushover settings from EEPROM. App token: '");
     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_APP_TOKEN, pushoverAppToken);
-    debug(*pushoverAppToken);
-    debug("'. User token: '");
     readStringFromEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken);
-    debug(*pushoverUserToken);
-    debugln("'.");
+    debugfln("Read Pushover settings from EEPROM. App token: '%s'. User token: '%s'.", pushoverAppToken->c_str(), pushoverUserToken->c_str());
   }
 
   return hasSettings;
@@ -311,15 +303,15 @@ boolean savePushoverSettings(const String& pushoverAppToken, const String& pusho
   boolean userTokenSuccess = writeStringToEEPROM(EEPROM_ADDR_PUSHOVER_USER_TOKEN, pushoverUserToken, 30);
 
   if (appTokenSuccess && userTokenSuccess) {
-    debugln("Pushover app Token successfully written to EEPROM. Validating...");
+    debugfln("Pushover app Token successfully written to EEPROM. Validating...");
     
     String readPushoverAppToken, readPushoverUserToken;
     readPushoverSettings(&readPushoverAppToken, &readPushoverUserToken, /*ignoreHasSettings=*/ true);
     
     boolean appTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
-    debugln("Pushover app token: '" + pushoverAppToken + "' equals '" + readPushoverAppToken + "'? -> " + appTokenValidated);
+    debugfln("Pushover app token: '%s' equals '%s'? -> %d", pushoverAppToken.c_str(), readPushoverAppToken.c_str(), appTokenValidated);
     boolean userTokenValidated = pushoverUserToken.equals(readPushoverUserToken);
-    debugln("Pushover app token: '" + pushoverUserToken + "' equals '" + readPushoverUserToken + "'? -> " + userTokenValidated);
+    debugfln("Pushover user token: '%s' equals '%s'? -> %d", pushoverUserToken.c_str(), readPushoverUserToken.c_str(), userTokenValidated);
 
     if (appTokenValidated && userTokenValidated) {
       String pushoverSet = "YES";
@@ -337,7 +329,7 @@ boolean savePushoverSettings(const String& pushoverAppToken, const String& pusho
 }
 
 void initializePushover() {
-  debugln("Initializing Pushover...");
+  debugfln("Initializing Pushover...");
 
   readPushoverSettings(&poAppToken, &poUserToken);
 
@@ -371,40 +363,36 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
   boolean batterieOk = (sb1 & 0x02) == 0;
   boolean batterieBetrieb ((sb1 & 0x01) != 0);
 
-  String durationStr;
+  char durationStr[20];
+  char msg[100];
 
   // Wasserstop is closed
   if (kugelventilGeschlossen) {
     // Wait at least the given amount of time before another push message is sent
     if ( canNotify(lastNotifiedKugelventilGeschlossen) ) {
-      String msg = String("Wasserstop ist geschlossen wegen ");
+      #define STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN "Wasserstop ist geschlossen wegen "
+      
       if (abschaltungsgrundWassermenge) {
         uint8_t limit = (b[28] + (b[29] << 8));
-        msg += "Überschreitung der Wassermenge (Gesetztes Limit: ";
-        msg += limit;
-        msg += "L).";
+        sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"Überschreitung der Wassermenge (Gesetztes Limit: %d l)."), limit);
       } else if (abschaltungsgrundDurchfluss) {
         uint8_t limit = (b[30] + (b[31] << 8));
-        msg += "Überschreitung des Durchflusses (Gesetztes Limit: ";
-        msg += limit;
-        msg += "L/Std).";
+        sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"Überschreitung des Durchflusses (Gesetztes Limit: %d l/Std.)."), limit);
       } else if (abschaltungsgrundEntnahmedauer) {
         uint8_t limit = (b[32] + (b[33] << 8)) / 120;
-        msg += "Überschreitung der Entnahmedauer (Gesetztes Limit: ";
-        msg += limit;
-        msg += "min).";
+        sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"Überschreitung der Entnahmedauer (Gesetztes Limit: %d min)."), limit);
       } else if (abschaltungsgrundLeckagesensor) {
-        msg += "Überschwemmungsanzeige durch Leckagesensor.";
+        sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"Überschwemmungsanzeige durch Leckagesensor."));
       } else {
-        msg += "unbekanntem Grund (z.B. manuell geschlossen).";
+        sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"unbekanntem Grund (z.B. manuell geschlossen)."));
       }
 
       sendNotification(msg, &lastNotifiedKugelventilGeschlossen);
     }
   } else {
     if (lastNotifiedKugelventilGeschlossen != 0) {
-      getFormattedDuration(&durationStr, lastNotifiedKugelventilGeschlossen);
-      String msg = "Wasserstop nach " + durationStr + " wieder geöffnet.";
+      getFormattedDuration(durationStr, lastNotifiedKugelventilGeschlossen);
+      sprintf_P(msg, PSTR("Wasserstop nach %s wieder geöffnet."), durationStr);
       sendNotification(msg, &lastNotifiedKugelventilGeschlossen, /*resetTimestamp=*/ true);
     }
   }
@@ -413,12 +401,12 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
   if (stoerung) {
     // Wait at least the given amount of time before another push message is sent
     if ( canNotify(lastNotifiedStoerung) ) {
-      sendNotification("Wasserstop signalisiert eine Störung.", &lastNotifiedStoerung);
+      sendNotification(F("Wasserstop signalisiert eine Störung."), &lastNotifiedStoerung);
     }
   } else {
     if (lastNotifiedStoerung != 0) {
-      getFormattedDuration(&durationStr, lastNotifiedStoerung);
-      String msg = "Störung nach " + durationStr + " wieder beseitigt.";
+      getFormattedDuration(durationStr, lastNotifiedStoerung);
+      sprintf_P(msg, PSTR("Störung nach %s wieder beseitigt."), durationStr);
       sendNotification(msg, &lastNotifiedStoerung, /*resetTimestamp=*/ true);
     }
   }
@@ -427,12 +415,12 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
   if (!batterieOk) {
     // Wait at least the given amount of time before another push message is sent
     if ( canNotify(lastNotifiedBatterieSchwach) ) {
-      sendNotification("Wasserstop signalisiert, dass die Not-Batterien schwach sind.", &lastNotifiedBatterieSchwach);
+      sendNotification(F("Wasserstop signalisiert, dass die Not-Batterien schwach sind."), &lastNotifiedBatterieSchwach);
     }
   } else {
     if (lastNotifiedBatterieSchwach != 0) {
-      getFormattedDuration(&durationStr, lastNotifiedBatterieSchwach);
-      String msg = "Schwacher Batteriezustand nach " + durationStr + " wieder beseitigt.";
+      getFormattedDuration(durationStr, lastNotifiedBatterieSchwach);
+      sprintf_P(msg, PSTR("Schwacher Batteriezustand nach %s wieder beseitigt."), durationStr);
       sendNotification(msg, &lastNotifiedBatterieSchwach, /*resetTimestamp=*/ true);
     }
   }
@@ -441,12 +429,12 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
   if (batterieBetrieb) {
     // Wait at least the given amount of time before another push message is sent
     if ( canNotify(lastNotifiedBatterieBetrieb) ) {
-      sendNotification("Wasserstop ist in den Batteriebetrieb gewechselt.", &lastNotifiedBatterieBetrieb);
+      sendNotification(F("Wasserstop ist in den Batteriebetrieb gewechselt."), &lastNotifiedBatterieBetrieb);
     }
   } else {
     if (lastNotifiedBatterieBetrieb != 0) {
-      getFormattedDuration(&durationStr, lastNotifiedBatterieBetrieb);
-      String msg = "Nach " + durationStr + " wieder zurück im regulären Stromnetzbetrieb.";
+      getFormattedDuration(durationStr, lastNotifiedBatterieBetrieb);
+      sprintf_P(msg, PSTR("Nach %s wieder zurück im regulären Stromnetzbetrieb."), durationStr);
       sendNotification(msg, &lastNotifiedBatterieBetrieb, /*resetTimestamp=*/ true);
     }
   }
@@ -465,7 +453,9 @@ void decodeRawBetriebsdatenResponse(ResponseBuffer& resBuf, char *output, size_t
   // 4. Byte: Statusbyte 1
   uint8_t sb1 = b[3];
 
-  doc["Timestamp"] = getFullFormattedTime(resBuf.queryTime);
+  char ts[20];
+  getFullFormattedTime(ts, resBuf.queryTime);
+  doc["Timestamp"] = ts;
 
   JsonObject kugelventil     = doc.createNestedObject("Kugelventil");
   kugelventil["Geschlossen"] = (sb0 & 0x01) != 0;
@@ -538,10 +528,8 @@ void decodeRawBetriebsdatenResponse(ResponseBuffer& resBuf, char *output, size_t
   externeAnschluesse["Ausgang_ohne_Stoerung_in_Betrieb"] = (sb1 & 0x40) != 0;
   externeAnschluesse["Ausgang_100l_Impuls"] = (sb1 & 0x80) != 0;
 
-  serializeJsonPretty(doc, output, outputSize);
+  serializeJson(doc, output, outputSize);
 }
-
-
 
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -556,28 +544,23 @@ void displayWifiManagerConfigSite() {
     WiFiManager wifiManager;
 
     if (!wifiManager.startConfigPortal(WIFI_CONFIG_ACCESS_POINT_NAME)) {
-      debugln("Failed to connect to WiFi");
+      debugf("Failed to connect to WiFi\n");
       delay(3000);
       ESP.restart();
     }
 
-    debug("Connected to WiFi: ");
-    debugln(WiFi.SSID());
-    debug("IP address is: ");
-    debugln(WiFi.localIP());
+    debugf("Connected to WiFi: %s\nIP address is: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
 
     if (digitalRead(WIFI_RESET_OPERATE_MODE) == LOW) {
-      debug("Please set config pin back, so the ");
-      debug(WIFI_CONFIG_ACCESS_POINT_NAME);
-      debug(" can restart ");
+      debugf("Please set config pin back, so the %s can restart", WIFI_CONFIG_ACCESS_POINT_NAME);
 
       while (digitalRead(WIFI_RESET_OPERATE_MODE) == LOW) {
-        debug(".");
+        debugf(".");
         yield();     // let the ESP execute background tasks and reset watchdog
         delay(1000);
       }
     }
-    debug("\nRestarting...");
+    debugf("\nRestarting...");
     ESP.restart();
 }
 
@@ -586,97 +569,103 @@ void displayWifiManagerConfigSite() {
 // (dispatching and request/response handling)
 // ----------------------------------------------------------
 void restGetRoot() {
-  debugln("GET /");
+  debugfln("GET /");
 
-  String usage = "\n\
-  <h1>Wasserstop-REST-Schnittstelle</h1> \n\
-  <h2>API-Doku</h2> \n\
-  <h3>Nutzungshinweise</h3> \n\
-  HTTP-Aufruf: <pre>GET /</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request GET http://ip-adresse/</pre> \n\
-  <p>Aktion: Gibt diese API-Doku zur&uuml;ck.</p> \n\
-  <h2>Auslesen und Steuern des Wasserstops</h2> \n\
-  <h3>Abruf Betriebsdaten</h3> \n\
-  HTTP-Aufruf: <pre>GET <a href=\"http://ip-adresse/all-data\">http://ip-adresse/all-data</a></pre> \n\
-  CURL-Beispiel: <pre>curl -i --request GET http://ip-adresse/all-data</pre> \n\
-  <p>Aktion: Gibt ein JSON-Objekt zur&uuml;ck mit den zuletzt gelesenen Einstellungen sowie dem Zeitstempel des Abrufs.</p> \n\
-  <h3>Ventil &ouml;ffnen/schlie&szlig;en</h3> \n\
-  HTTP-Aufruf: <pre>POST http://ip-adresse/ventil-auf-zu</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/ventil-auf-zu</pre> \n\
-  <p>Aktion: Sendet den Befehl zum &Ouml;ffnen/Schlie&szlig;en an den Wasserstop. Der aktuelle Status wird nicht ber&uuml;cksichtigt.</p> \n\
-  <h3>Ventil &ouml;ffnen</h3> \n\
-  HTTP-Aufruf: <pre>POST http://ip-adresse/ventil-auf</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/ventil-auf</pre> \n\
-  <p>Aktion: Sendet den Befehl zum &Ouml;ffnen an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in offener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
-  <h3>Ventil schlie&szlig;en</h3> \n\
-  HTTP-Aufruf: <pre>POST http://ip-adresse/ventil-zu</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/ventil-zu</pre> \n\
-  <p>Aktion: Sendet den Befehl zum Schlie&szlig;en an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in geschlossener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
-  <br /> \n\
-  <h2>Setzen der Einstellungen</h2> \n\
-  <h3>Pushover Tokens setzen</h3> \n";
+  PGM_P usage = PSTR("\n\
+<h1>Wasserstop-REST-Schnittstelle</h1> \n\
+<h2>API-Doku</h2> \n\
+<h3>Nutzungshinweise</h3> \n\
+HTTP-Aufruf: <pre>GET /</pre> \n\
+CURL-Beispiel: <pre>curl -i --request GET http://%s/</pre> \n\
+<p>Aktion: Gibt diese API-Doku zur&uuml;ck.</p> \n\
+<h2>Benutzerschnittstelle</h2> \n\
+<h3>HTML-WebApp</h3> \n\
+HTTP-Aufruf: <pre>GET <a href=\"http://%s/webapp\">http://%s/webapp</a></pre> \n\
+<br /> \n\
+<h2>Auslesen und Steuern des Wasserstops</h2> \n\
+<h3>Abruf Betriebsdaten</h3> \n\
+HTTP-Aufruf: <pre>GET <a href=\"http://%s/all-data\">http://%s/all-data</a></pre> \n\
+CURL-Beispiel: <pre>curl -i --request GET http://%s/all-data</pre> \n\
+<p>Aktion: Gibt ein JSON-Objekt zur&uuml;ck mit den zuletzt gelesenen Einstellungen sowie dem Zeitstempel des Abrufs.</p> \n\
+<h3>Ventil &ouml;ffnen/schlie&szlig;en</h3> \n\
+HTTP-Aufruf: <pre>POST http://%s/ventil-auf-zu</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST http://%s/ventil-auf-zu</pre> \n\
+<p>Aktion: Sendet den Befehl zum &Ouml;ffnen/Schlie&szlig;en an den Wasserstop. Der aktuelle Status wird nicht ber&uuml;cksichtigt.</p> \n\
+<h3>Ventil &ouml;ffnen</h3> \n\
+HTTP-Aufruf: <pre>POST http://%s/ventil-auf</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST http://%s/ventil-auf</pre> \n\
+<p>Aktion: Sendet den Befehl zum &Ouml;ffnen an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in offener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
+<h3>Ventil schlie&szlig;en</h3> \n\
+HTTP-Aufruf: <pre>POST http://%s/ventil-zu</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST http://%s/ventil-zu</pre> \n\
+<p>Aktion: Sendet den Befehl zum Schlie&szlig;en an den Wasserstop, falls das Ventil geschlossen ist. Der Befehl hat nur einen Effekt, wenn sich das Kugelventil in geschlossener Endlage befindet und der Motor nicht in Bewegung ist.</p> \n\
+<br /> \n\
+<h2>Setzen der Einstellungen</h2> \n\
+<h3>Pushover Tokens setzen</h3> \n\
+<div style=\"border:2px solid red; display:%s\">Pushover-Einstellungen nicht gesetzt. Bitte zun&auml;chst einstellen.</div>\n\
+HTTP-Aufruf: <pre>POST http://%s/set-pushover-tokens</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST --data '{\"app-token\":\"alwucdbvppok4i9g7a44lnvvv3o8qo\", \"user-token\":\"v4kg1pnw7i9hbpvuqap4q96h0krxe5\"}' http://%s/set-pushover-tokens</pre> \n\
+<p>Aktion: Speichert die Pushover-Einstellungen im nicht-fl&uuml;chtigen Speicher.</p> \n\
+Parameter: <em>app-token</em> \n\
+<div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div><br /> \n\
+<em>user-token</em> \n\
+<div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div> \n\
+<h3>Pushover-Benachrichtigung testen</h3> \n\
+HTTP-Aufruf: <pre>POST http://%s/test-notification</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST http://%s/test-notification</pre> \n\
+<p>Aktion: Sendet eine Test-Benachrichtigung, wenn Pushover richtig konfiguriert ist..</p> \n\
+<h3>Wasserstop-Gateway neu starten</h3> \n\
+HTTP-Aufruf: <pre>POST http://%s/restart</pre> \n\
+CURL-Beispiel: <pre>curl -i --request POST http://%s/restart</pre> \n\
+<p>Aktion: Versucht den ESP8266 neu zu starten.</p> \n");
 
-  if (!hasPushoverTokenSettings()) {
-    usage += "<div style=\"border:2px solid red;\">Pushover-Einstellungen nicht gesetzt. Bitte zun&auml;chst einstellen.</div>\n";
-  }
+  char ip[16];
+  WiFi.localIP().toString().toCharArray(ip, 16);
 
-  usage += "HTTP-Aufruf: <pre>POST http://ip-adresse/set-pushover-tokens</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST --data '{\"app-token\":\"alwucdbvppok4i9g7a44lnvvv3o8qo\", \"user-token\":\"v4kg1pnw7i9hbpvuqap4q96h0krxe5\"}' http://ip-adresse/set-pushover-tokens</pre> \n\
-  <p>Aktion: Speichert die Pushover-Einstellungen im nicht-fl&uuml;chtigen Speicher.</p> \n\
-  Parameter: <em>app-token</em> \n\
-  <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div><br /> \n\
-  <em>user-token</em> \n\
-  <div style=\"padding-left:4em;\">30 Zeichen langer alphanumerischer String</div> \n\
-  <h3>Pushover-Benachrichtigung testen</h3> \n\
-  HTTP-Aufruf: <pre>POST http://ip-adresse/test-notification</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/test-notification</pre> \n\
-  <p>Aktion: Sendet eine Test-Benachrichtigung, wenn Pushover richtig konfiguriert ist..</p> \n\
-  <h3>Wasserstop-Gateway neu starten</h3> \n\
-  HTTP-Aufruf: <pre>POST http://ip-adresse/restart</pre> \n\
-  CURL-Beispiel: <pre>curl -i --request POST http://ip-adresse/restart</pre> \n\
-  <p>Aktion: Versucht den ESP8266 neu zu starten.</p> \n";
+  char *htmlOutputBuffer = new char[10000];
+  snprintf_P(htmlOutputBuffer, 10000, usage, ip, ip, ip, ip, ip, ip, ip, ip, ip, ip, ip, ip, hasPushoverTokenSettings() ? "none" : "block", ip, ip, ip, ip, ip, ip);
 
-  usage.replace("ip-adresse", WiFi.localIP().toString());
-  httpRestServer.send(200, "text/html", usage);
+  httpRestServer.send(200, TEXT_HTML, htmlOutputBuffer);
+  free(htmlOutputBuffer);
 }
 
 void restAllData() {
-  debugln("GET /all-data");
+  debugfln("GET /all-data");
   char output[2048];
   decodeRawBetriebsdatenResponse(rb[lastValidBufferIdx], output, 2048);
-  httpRestServer.send(200, "text/html", output);
+  httpRestServer.send(200, TEXT_HTML, output);
 }
 
 void restVentilAufZu() {
-  debugln("POST /ventil-auf-zu");
+  debugfln("POST /ventil-auf-zu");
   boolean success = sendOpenCloseSignalToWasserstop();
 
   int responseCode = success ? 200 : 503;
-  httpRestServer.send(responseCode, "text/html", "");
+  httpRestServer.send(responseCode, TEXT_HTML, "");
 }
 
 void restVentilAuf() {
- debugln("POST /ventil-auf");
+ debugfln("POST /ventil-auf");
  int responseCode = 200;
  if (isKugelventilGeschlossen()) {
   restVentilAufZu();
  } else {
-  httpRestServer.send(424, "text/html", "Valve already open"); // Failed Dependency
+  httpRestServer.send(424, TEXT_HTML, F("Valve already open")); // Failed Dependency
  }
 }
 
 void restVentilZu() {
- debugln("POST /ventil-zu");
+ debugfln("POST /ventil-zu");
  int responseCode = 200;
  if (isKugelventilOffen()) {
   restVentilAufZu();
  } else {
-  httpRestServer.send(424, "text/html", "Valve already closed"); // Failed Dependency
+  httpRestServer.send(424, TEXT_HTML, F("Valve already closed")); // Failed Dependency
  }
 }
 
 void restSetPushoverTokens() {
-  debugln("POST /set-pushover-tokens");
+  debugfln("POST /set-pushover-tokens");
 
   StaticJsonDocument<JSON_DOCUMENT_CAPACITY> json;
   bool validJson = parseHttpBodyToJson(json);
@@ -692,41 +681,57 @@ void restSetPushoverTokens() {
           poAppToken = pushoverAppToken;
           poUserToken = pushoverUserToken;
           initializePushover();
-          httpRestServer.send(200, "text/html", "Ok");
+          httpRestServer.send(200, TEXT_HTML, F("Ok"));
         } else {
-          httpRestServer.send(500, "text/html", "Unable to save Pushover tokens");
+          httpRestServer.send(500, TEXT_HTML, F("Unable to save Pushover tokens"));
         }
       } else {
-        httpRestServer.send(422, "text/html", "Pushover user token not valid. Must be 30 characters long."); 
+        httpRestServer.send(422, TEXT_HTML, F("Pushover user token not valid. Must be 30 characters long.")); 
       }
     } else {
-      httpRestServer.send(422, "text/html", "Pushover app token not valid. Must be 30 characters long."); 
+      httpRestServer.send(422, TEXT_HTML, F("Pushover app token not valid. Must be 30 characters long.")); 
     }
   } else {
-    httpRestServer.send(422, "text/html", "JSON in HTTP header invalid"); 
+    httpRestServer.send(422, TEXT_HTML, F("JSON in HTTP header invalid")); 
   }  
 }
 
 void restSendTestNotification() {
-  debugln("POST /test-notification");
+  debugfln("POST /test-notification");
 
   if (hasPushoverTokenSettings()) {
-    sendNotification("Test-Benachrichtigung");
-    httpRestServer.send(200, "text/html", "Ok");
+    sendNotification(F("Test-Benachrichtigung"));
+    httpRestServer.send(200, TEXT_HTML, "Ok");
   } else {
-    httpRestServer.send(423, "text/html", "Pushover app tokens are not configured properly."); 
+    httpRestServer.send(423, TEXT_HTML, F("Pushover app tokens are not configured properly.")); 
   }
 }
 
 void restRestart() {
-  debugln("POST /restart");
-  httpRestServer.send(202, "text/html", "Restarting...");
+  debugfln("POST /restart");
+  httpRestServer.send(202, TEXT_HTML, F("Restarting..."));
   ESP.restart();
 }
 
+void restWebapp() {
+  debugfln("GET /webapp");
+  
+  PGM_P htmlTemplate = PSTR("<!DOCTYPE html><html lang=\"de\"> <head> <title>Wasserstop</title> <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/> <meta http-equiv=\"cache-control\" content=\"no-cache\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <meta name=\"apple-mobile-web-app-capable\" content=\"yes\"> <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"> <link rel=\"apple-touch-icon\" href=\"https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Stop_hand_nuvola_blue.svg/240px-Stop_hand_nuvola_blue.svg.png\"/> <style>BODY{font-family: calibri,sans-serif; margin: 0;}#heading{border-bottom: 1px solid #333; background-color: #000; color: #ddd; text-align: center; font-weight: bold; height: 1.5em; padding-top: 0.5em;}DIV.topic-box{border: 1px solid gray; border-radius: 5px; margin: 2em 3vw 0 3vw;}DIV.topic-box P.caption{margin: -0.7em 1em 0.5em 1em; padding-left: 0.5em; background: white; display: block; width: 82vw; white-space: nowrap; font-weight: bold;}DIV.topic-box TABLE{width: 100%%; padding-left: 1em; padding-bottom: 0.5em;}DIV.topic-box TABLE TD P{margin: 0.1em 0 0.1em 0; display: inline-grid;}DIV.topic-box TABLE TD P.messwert{width: 3.6em;}DIV.topic-box TABLE TD P.von{padding-left: 1em; padding-right: 1em;}DIV.topic-box TABLE TD:first-child{width: 40%%;}DIV.buttonbar{display: flex; flex-wrap: nowrap; align-items: center; justify-content: center;}DIV.buttonbar BUTTON{display: grid; align-items: center; justify-content: center; width: 30vw; height: 10vw; border-radius: 5px; margin-bottom: 1em;}DIV.buttonbar BUTTON.open{background-color: green; margin-right: 10vw;}DIV.buttonbar BUTTON.close{background-color: #a00; margin-left: 10vw;}.good{color: green;}.bad{color: red;}.neutral{color: black;}.pulsating{animation: pulsating 1.5s infinite;}@keyframes pulsating{0%%{opacity: 0.2;}50%%{opacity: 1.0;}100%%{opacity: 0.2;}}#motorOeffnet, #motorSchliesst{padding-left: 1em;}.hidden{display: none !important;}</style> <script type='text/javascript'> const pollingInterval=%ld; function setText(id, text, cssClass='neutral'){var e=document.getElementById(id); e.innerText=text; e.className=cssClass;}function setGoodBadText(id, isGood, goodText, badText){if (isGood){setText(id, goodText, 'good');}else{setText(id, badText, 'bad');}}function refresh(){var xhr=new XMLHttpRequest(); xhr.open('GET', '/all-data', true); xhr.timeout=pollingInterval - 100; xhr.overrideMimeType('application/json'); xhr.setRequestHeader('Content-Type', 'application/json'); xhr.onload=function (){var data=JSON.parse(this.responseText); var kvGeschlossen=data['Kugelventil']['Geschlossen']; setGoodBadText('kugelventil', !kvGeschlossen, 'offen', 'geschlossen'); var motorAn=data['Kugelventil']['Motor_an']; var eAuf=document.getElementById('motorOeffnet'); var eZu=document.getElementById('motorSchliesst'); eAuf.className='pulsating good ' + ((!motorAn || (motorAn && !kvGeschlossen)) ? 'hidden' : ''); eZu.className='pulsating bad ' + ((!motorAn || (motorAn && kvGeschlossen)) ? 'hidden' : ''); var quelle=(data['Stromversorgung']['Quelle']); setText('stromversorgung', quelle, (quelle=='Batterie') ? 'bad' : 'good'); setGoodBadText('stoerung', !data['Stoerung']['Aktuell_gestoert'], 'keine', 'gestört'); setText('verbrauchszaehler', data['Status']['Gesamtwassermenge']['total']+' l'); var spannung=' ('+data['Stromversorgung']['Batteriespannung']+' V)'; setGoodBadText('batteriezustand', data['Stromversorgung']['Batterie_ok'], 'ok'+spannung, 'schwach'+spannung); var wmAus=data['Abschaltungsgrund']['Wassermenge']; setText('messungWassermenge', data['Wassermenge']['Aktuell']+' l', 'messwert ' + (wmAus ? 'bad' : 'neutral')); setText('grenzwertWassermenge', data['Wassermenge']['Grenzwert']+' l', 'neutral maxwert'); var dfAus=data['Abschaltungsgrund']['Durchfluss']; setText('messungDurchfluss', data['Durchfluss']['Aktuell']+' l/h', 'messwert ' + (dfAus ? 'bad' : 'neutral')); setText('grenzwertDurchfluss', data['Durchfluss']['Grenzwert']+' l/h', 'neutral maxwert'); var entAus=data['Abschaltungsgrund']['Entnahmedauer']; var entnahmedauer=data['Entnahmezeit']['Aktuell']; setText('messungEntnahmezeit', (entnahmedauer<120 ? entnahmedauer+' s' : (entnahmedauer/60).toFixed(0)+' min'), 'messwert ' + (entAus ? 'bad' : 'neutral')); setText('grenzwertEntnahmezeit', data['Entnahmezeit']['Grenzwert']+' min', 'neutral maxwert'); var nass=data['Abschaltungsgrund']['Leckagesensor']; setText('messungLeckagesensor', nass ? 'nass' : 'trocken', 'messwert ' + (nass ? 'bad' : 'neutral')); setText('urlaubsmodus', data['Status']['Urlaubsmodus'] ? 'an' : 'aus'); setText('standbymodus', data['Status']['Standbymodus'] ? 'an' : 'aus');}; xhr.send(null); setTimeout(refresh, pollingInterval);}refresh(); setTimeout(refresh, pollingInterval); </script> </head> <body> <div id=\"heading\"> Wasserstop-Steuerung </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsstatus</p><table> <tr> <td><label>Kugelventil</label></td><td><p id=\"kugelventil\" class=\"good\"></p><p id=\"motorOeffnet\" class=\"pulsating hidden good\">(&ouml;ffnet)</p><p id=\"motorSchliesst\" class=\"pulsating hidden bad\">(schlie&szlig;t)</p></td></tr><tr> <td><label>Stromversorgung</label></td><td><p id=\"stromversorgung\" class=\"bad\"></p></td></tr><tr> <td><label>St&ouml;rung</label></td><td><p id=\"stoerung\" class=\"good\"></p></td></tr><tr> <td><label>Verbrauchsz&auml;hler</label></td><td><p id=\"verbrauchszaehler\" class=\"neutral\"></p></td></tr><tr> <td><label>Batteriezustand</label></td><td><p id=\"batteriezustand\" class=\"bad\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Messung / Abschaltgrund</p><table> <tr> <td><label>Wassermenge</label></td><td><p id=\"messungWassermenge\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertWassermenge\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Durchfluss</label></td><td><p id=\"messungDurchfluss\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertDurchfluss\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Entnahmezeit</label></td><td><p id=\"messungEntnahmezeit\" class=\"bad messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertEntnahmezeit\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Leckagesensor</label></td><td><p id=\"messungLeckagesensor\" class=\"neutral messwert\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsmodi</p><table> <tr> <td><label>Urlaubsmodus</label></td><td><p id=\"urlaubsmodus\" class=\"neutral\"></p></td></tr><tr> <td><label>Stand-by-Modus</label></td><td><p id=\"standbymodus\" class=\"neutral\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Ventilsteuerung</p><div class=\"buttonbar\"> <form method=\"POST\" action=\"http://%s/ventil-auf\" name=\"formVentilOeffnen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird ge&ouml;ffnet.')\"> <button type=\"submit\" name=\"ventilOeffnen\" class=\"open\">&Ouml;ffnen</button> </form> <form method=\"POST\" action=\"http://%s/ventil-zu\" name=\"formVentilSchliessen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird geschlossen.')\"> <button type=\"submit\" name=\"ventilSchliessen\" class=\"close\">Schlie&szlig;en</button> </form> </div><iframe name=\"hiddenFrame\" width=\"0\" height=\"0\" border=\"0\" style=\"display: none;\"></iframe> </div></body></html>");
+
+  char ip[16];
+  WiFi.localIP().toString().toCharArray(ip, 16);
+
+  char *htmlOutputBuffer = new char[10000];
+  snprintf_P(htmlOutputBuffer, 10000, htmlTemplate, WEBAPP_POLLING_INTERVAL, ip, ip);
+  
+  httpRestServer.send(200, TEXT_HTML, htmlOutputBuffer);
+  free(htmlOutputBuffer);
+}
+
+
 void startRestService() {
-  debugln("Starting REST server");
-  //httpRestServer = new ESP8266WebServer(WiFi.localIP(), REST_SERVER_HTTP_PORT));
+  debugfln("Starting REST server");
+  
   httpRestServer.on("/", HTTP_GET, restGetRoot);
   httpRestServer.on("/all-data", HTTP_GET, restAllData);
   httpRestServer.on("/ventil-auf-zu", HTTP_POST, restVentilAufZu);
@@ -735,7 +740,8 @@ void startRestService() {
   httpRestServer.on("/set-pushover-tokens", HTTP_POST, restSetPushoverTokens);
   httpRestServer.on("/test-notification", HTTP_POST, restSendTestNotification);
   httpRestServer.on("/restart", HTTP_POST, restRestart);
-
+  httpRestServer.on("/webapp", HTTP_GET, restWebapp);
+  
   httpRestServer.begin();
   restServerRunning = true;
 }
@@ -754,7 +760,7 @@ void startRestService() {
 void setup() {
   Serial.begin(115200);
   EEPROM.begin(128); 
-  debugln("\n Starting");
+  debugfln("\n Starting");
 
   // init serial connection to Wasserstop
   swSer.begin(SERIAL_BAUD_RATE,
@@ -779,7 +785,7 @@ void setup() {
 void loop() {
   // Check if WiFiManagers config portal is requested
   if ( digitalRead(WIFI_RESET_OPERATE_MODE) == LOW ) {
-    debugln("WiFi Manager config requested");
+    debugfln("WiFi Manager config requested");
     // Stop our web server in order to allow WiFiManager's web server to start up
     httpRestServer.stop();
     restServerRunning = false;
@@ -797,7 +803,7 @@ void loop() {
 
   if (WiFi.status() == WL_CONNECTED) {
     if (lastPollingTime < millis()-WASSERSTOP_DEFAULT_POLLING_INTERVAL) {
-      debugln("Request data from Wasserstop...");
+      debugfln("Request data from Wasserstop...");
       int nextBufferIdx = lastValidBufferIdx ? 0 : 1;
       readBetriebsdatenFromWasserstop(rb[nextBufferIdx]);
 
@@ -817,7 +823,7 @@ void loop() {
       httpRestServer.handleClient();
     }
   } else {
-    debugln("Not connected to WiFi");
+    debugfln("Not connected to WiFi");
     delay(1000);
   }
 
