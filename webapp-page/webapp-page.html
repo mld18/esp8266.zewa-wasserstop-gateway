@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <title>Wasserstop</title>
+    <meta http-equiv="cache-control" content="no-cache">
+
+    <!-- For mobile view -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- For apple -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <link rel="apple-touch-icon" href="https://www.iconfinder.com/icons/4469544/download/png/256" />
+    <!-- iPad icons -->
+    <!-- <link rel="apple-touch-icon" href="img/ConciergeLogo-72.png" sizes="72x72" />
+    <link rel="apple-touch-icon" href="img/ConciergeLogo-144.png" sizes="144x144" /> -->
+    <!-- iPhone and iPod touch icons -->
+    <!-- <link rel="apple-touch-icon" href="img/ConciergeLogo-57.png" sizes="57x57">
+    <link rel="apple-touch-icon" href="img/ConciergeLogo-114.png" sizes="114x114"> -->
+
+    <style>
+      BODY {
+        font-family: calibri,sans-serif;
+      }
+
+      #heading {
+        border-bottom: 1px solid #333;
+        background-color: #000;
+        color: #ddd;
+        text-align: center;
+        font-weight: bold;
+        height: 1.5em;
+        padding-top: 0.5em;
+      }
+
+      DIV.topic-box {
+        border: 1px solid gray;
+        border-radius: 5px;
+        margin-top: 1.5em;
+      }
+
+      DIV.topic-box P.caption {
+        margin: -0.5em 1em 0.5em 1em;
+        padding-left: 0.5em;
+        background: white;
+        display: block;
+        width: 4em;
+      }
+
+      DIV.topic-box TABLE {
+        border: 1px dashed #aaa; /* TODO: remove me, for design purposes */
+        width: 100%;
+        padding-left: 1em;
+      }
+
+      DIV.topic-box TABLE TD P {
+        margin: 0.1em 0 0.1em 0;
+      }
+
+      DIV.topic-box TABLE TD:first-child {
+        width: 30%;
+      }
+
+      DIV.buttonbar {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: center;
+      }
+
+      DIV.buttonbar DIV.button {
+        display: grid;
+        align-items: center;
+        justify-content: center;
+        width: 20vw;
+        height: 20vw;
+        border-radius: 5px;
+      }
+
+      DIV.buttonbar DIV.button.on {
+        background-color: green;
+        margin-right: 10vw;
+      }
+
+      DIV.buttonbar DIV.button.off {
+        background-color: #a00;
+        margin-left: 10vw;
+      }
+
+      .good {
+        color: green;
+      }
+
+      .bad {
+        color: red;
+      }
+
+    </style>
+  </head>
+  <body>
+
+    <div id="heading">
+      Wasserstop-Steuerung
+    </div>
+
+    <div class="topic-box">
+      <p class="caption">Status</p>
+      <table>
+        <tr>
+          <td><label>Kugelventil</label></td>
+          <td><p id="kugelventil" class="good">offen</p></td>
+        </tr>
+        <tr>
+          <td><label>Stromversorgung</label></td>
+          <td><p id="stromversorgung" class="bad">Batterie</p></td>
+        </tr>
+        <tr>
+          <td><label>St&ouml;rung</label></td>
+          <td><p id="stoerung" class="good">keine</p></td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="topic-box">
+      <p class="caption">Ventilsteuerung</p>
+
+      <div class="buttonbar">
+        <div class="button on">&Ouml;ffnen</div>
+
+        <div class="button off">Schlie&szlig;en</div>
+      </div>
+
+    </div>
+
+  </body>
+</html>

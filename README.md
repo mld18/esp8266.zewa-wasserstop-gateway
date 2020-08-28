@@ -24,6 +24,10 @@ Upon first start you can see a new Wifi access point. Please connect to it. You'
 ### Endpoints
 TODO: describe all endpoints
 
+#### /webapp
+Displays a single web application (SWA). The web app is based on AJAX and perodically polls data from the /all-data endpoint (see above). On iOS this web app can be opened with Safari and an app icon can be placed on the home screen.
+![Look and feel of the webapp SWA on an iPhone](doc/example_webapp_screen.png "Look and feel of the webapp SWA on an iPhone")
+
 
 ## Hardware Setup
 ### Schematic
@@ -58,15 +62,12 @@ According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.
 For the beginning all open to-dos are listed here:
 
 #### Miscellaneous
-* Scan code for potential memory leaks
-* Time for the timestamp is not adjusted between DST and normal time (inspiration can be found [here](https://forum.arduino.cc/index.php?topic=172044.msg1278536#msg1278536))
 * Soft-limits: if none of the fixed settings suits your needs a soft limit allows for choosing different trigger limits.
 * Added dedicated LED that signals an established WiFi connection
 
 #### Missing endpoints
 * Add `/set-wasserzaehler-offset` POST endpoint to map a value of the internal volume counter to the physical water meter.
 * Add `/wasserzaehler` GET endpoint to retrieve the value on the water meter (if offset has been set properly)
-* If possible, add `/webapp` GET endpoint with a simple AJAX based single page web application that can be used on mobile device (with a home screen icon)
 
 #### Security
 Currently none of the calls is secured. Hence, every client in the WiFi may control the Wasserstop unit. A shared key that is transferred in an HTTP header *similar* to JWT tokens may be a viable solution.
