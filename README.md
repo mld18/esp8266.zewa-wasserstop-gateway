@@ -88,6 +88,16 @@ If the authentication tokens for [Pushover.net](https://www.pushover.net) have b
 | Parameters      	| none                                                    	|
 | Example request 	| `curl -i --request POST http://WasserstopGateway/test-notification`	|
 
+#### `/set-wasserzaehler-offset` Adjust water consumption counter to external water meter
+This function takes the amount of water in liters as given in die `value` field and subtracts the value of the built-in water consumption counter. The function stores the resulting difference as an offset. The offset is used to calculate the current value of the external water meter, i.d. *offset + built-in-counter = water-meter*.
+
+| Endpoint     	    | `/set-wasserzaehler-offset`                                   	|
+|-----------------	|---------------------------------------------------------	|
+| HTTP method     	| `POST`                                                    	|
+| Parameters      	| Parameter:<br />`value`: Integral value larger or equal to 0, that represents the current amount of consumed water in liters (m³ x 1000)  according to an external water meter. |
+| Example request 	| `curl -i --request POST --data '{"value":120435}' http://192.168.178.62/set-wasserzaehler-offset`	|
+
+
 #### `/restart` Restarts the ESP8266
 Use this endpoint to trigger a restart of the ESP8266.
 
