@@ -137,7 +137,7 @@ When you've bought IDC header connectors (IDC = insulation-displacement contact)
 ![D-Sub 9 cable pin connection](doc/dsub-9-cable-pin-connection.jpg)
 
 ### Connect to Wasserstop Unit
-According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/themes/judo-2019//data/8140001/manuals/1701936.pdf) you first need to remove the power plug. Then you can connect your DIY gateway with the RS-232 header pins of the Wasserstop unit. Eventually, insert the unit's power plug again.
+According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/downloads/files/de/8140001/manuals/1701936.pdf) you first need to remove the power plug. Then you can connect your DIY gateway with the RS-232 header pins of the Wasserstop unit. Eventually, insert the unit's power plug again.
 
 
 ## Development
