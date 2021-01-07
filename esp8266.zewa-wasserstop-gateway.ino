@@ -147,7 +147,7 @@ template<size_t N> void getFormattedDuration(char (&result)[N], unsigned long fr
   if (till == 0) {
     till = millis();
   }
-  
+
   if (till < from) {
     strncpy(result, "?", N);
   } else {
@@ -204,7 +204,7 @@ void readWaterconsumptionOffsetFromEEPROM() {
   } else {
     waterconsumptionOffset = 0;
     debugfln("No offset in EEPROM => set water consumption offset to 0");
-  } 
+  }
 }
 
 void writeWaterconsumptionOffsetToEEPROM() {
@@ -360,10 +360,10 @@ boolean savePushoverSettings(const String& pushoverAppToken, const String& pusho
 
   if (appTokenSuccess && userTokenSuccess) {
     debugfln("Pushover app Token successfully written to EEPROM. Validating...");
-    
+
     String readPushoverAppToken, readPushoverUserToken;
     readPushoverSettings(&readPushoverAppToken, &readPushoverUserToken, /*ignoreHasSettings=*/ true);
-    
+
     boolean appTokenValidated = pushoverAppToken.equals(readPushoverAppToken);
     debugfln("Pushover app token: '%s' equals '%s'? -> %d", pushoverAppToken.c_str(), readPushoverAppToken.c_str(), appTokenValidated);
     boolean userTokenValidated = pushoverUserToken.equals(readPushoverUserToken);
@@ -427,7 +427,7 @@ void sendPushNotificationOnError(ResponseBuffer& resBuf) {
     // Wait at least the given amount of time before another push message is sent
     if ( canNotify(lastNotifiedKugelventilGeschlossen) ) {
       #define STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN "Wasserstop ist geschlossen wegen "
-      
+
       if (abschaltungsgrundWassermenge) {
         uint8_t limit = (b[28] + (b[29] << 8));
         sprintf_P(msg, PSTR(STR_WASSERSTOP_IST_GESCHLOSSEN_WEGEN"Überschreitung der Wassermenge (Gesetztes Limit: %d l)."), limit);
@@ -749,14 +749,14 @@ void restSetPushoverTokens() {
           httpRestServer.send(500, CT_TEXT_HTML, F("Unable to save Pushover tokens"));
         }
       } else {
-        httpRestServer.send(422, CT_TEXT_HTML, F("Pushover user token not valid. Must be 30 characters long.")); 
+        httpRestServer.send(422, CT_TEXT_HTML, F("Pushover user token not valid. Must be 30 characters long."));
       }
     } else {
-      httpRestServer.send(422, CT_TEXT_HTML, F("Pushover app token not valid. Must be 30 characters long.")); 
+      httpRestServer.send(422, CT_TEXT_HTML, F("Pushover app token not valid. Must be 30 characters long."));
     }
   } else {
-    httpRestServer.send(422, CT_TEXT_HTML, F("JSON in HTTP header invalid")); 
-  }  
+    httpRestServer.send(422, CT_TEXT_HTML, F("JSON in HTTP header invalid"));
+  }
 }
 
 void restSendTestNotification() {
@@ -766,7 +766,7 @@ void restSendTestNotification() {
     sendNotification(F("Test-Benachrichtigung"));
     httpRestServer.send(200, CT_TEXT_HTML, "Ok");
   } else {
-    httpRestServer.send(423, CT_TEXT_HTML, F("Pushover app tokens are not configured properly.")); 
+    httpRestServer.send(423, CT_TEXT_HTML, F("Pushover app tokens are not configured properly."));
   }
 }
 
@@ -778,15 +778,15 @@ void restRestart() {
 
 void restWebapp() {
   debugfln("GET /webapp");
-  
-  PGM_P htmlTemplate = PSTR("<!DOCTYPE html><html lang=\"de\"> <head> <title>Wasserstop</title> <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/> <meta http-equiv=\"cache-control\" content=\"no-cache\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <meta name=\"apple-mobile-web-app-capable\" content=\"yes\"> <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"> <link rel=\"apple-touch-icon\" href=\"https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Stop_hand_nuvola_blue.svg/240px-Stop_hand_nuvola_blue.svg.png\"/> <style>BODY{font-family: calibri,sans-serif; margin: 0;}#heading{border-bottom: 1px solid #333; background-color: #000; color: #ddd; text-align: center; font-weight: bold; height: 1.5em; padding-top: 0.5em;}DIV.topic-box{border: 1px solid gray; border-radius: 5px; margin: 2em 3vw 0 3vw;}DIV.topic-box P.caption{margin: -0.7em 1em 0.5em 1em; padding-left: 0.5em; background: white; display: block; width: 82vw; white-space: nowrap; font-weight: bold;}DIV.topic-box TABLE{width: 100%%; padding-left: 1em; padding-bottom: 0.5em;}DIV.topic-box TABLE TD P{margin: 0.1em 0 0.1em 0; display: inline-grid;}DIV.topic-box TABLE TD P.messwert{width: 3.6em;}DIV.topic-box TABLE TD P.von{padding-left: 1em; padding-right: 1em;}DIV.topic-box TABLE TD:first-child{width: 40%%;}DIV.buttonbar{display: flex; flex-wrap: nowrap; align-items: center; justify-content: center;}DIV.buttonbar BUTTON{display: grid; align-items: center; justify-content: center; width: 30vw; height: 10vw; border-radius: 5px; margin-bottom: 1em;}DIV.buttonbar BUTTON.open{background-color: green; margin-right: 10vw;}DIV.buttonbar BUTTON.close{background-color: #a00; margin-left: 10vw;}.good{color: green;}.bad{color: red;}.neutral{color: black;}.pulsating{animation: pulsating 1.5s infinite;}@keyframes pulsating{0%%{opacity: 0.2;}50%%{opacity: 1.0;}100%%{opacity: 0.2;}}#motorOeffnet, #motorSchliesst{padding-left: 1em;}.hidden{display: none !important;}</style> <script type='text/javascript'> const pollingInterval=%ld; function setText(id, text, cssClass='neutral'){var e=document.getElementById(id); e.innerText=text; e.className=cssClass;}function setGoodBadText(id, isGood, goodText, badText){if (isGood){setText(id, goodText, 'good');}else{setText(id, badText, 'bad');}}function refresh(){var xhr=new XMLHttpRequest(); xhr.open('GET', '/all-data', true); xhr.timeout=pollingInterval - 100; xhr.overrideMimeType('application/json'); xhr.setRequestHeader('Content-Type', 'application/json'); xhr.onload=function (){var data=JSON.parse(this.responseText); var kvGeschlossen=data['Kugelventil']['Geschlossen']; setGoodBadText('kugelventil', !kvGeschlossen, 'offen', 'geschlossen'); var motorAn=data['Kugelventil']['Motor_an']; var eAuf=document.getElementById('motorOeffnet'); var eZu=document.getElementById('motorSchliesst'); eAuf.className='pulsating good ' + ((!motorAn || (motorAn && !kvGeschlossen)) ? 'hidden' : ''); eZu.className='pulsating bad ' + ((!motorAn || (motorAn && kvGeschlossen)) ? 'hidden' : ''); var quelle=(data['Stromversorgung']['Quelle']); setText('stromversorgung', quelle, (quelle=='Batterie') ? 'bad' : 'good'); setGoodBadText('stoerung', !data['Stoerung']['Aktuell_gestoert'], 'keine', 'gestört'); setText('verbrauchszaehler', (data['Status']['Gesamtwassermenge']['total']/1000).toFixed(1)+' m³'); var spannung=' ('+data['Stromversorgung']['Batteriespannung']+' V)'; setGoodBadText('batteriezustand', data['Stromversorgung']['Batterie_ok'], 'ok'+spannung, 'schwach'+spannung); var wmAus=data['Abschaltungsgrund']['Wassermenge']; setText('messungWassermenge', data['Wassermenge']['Aktuell']+' l', 'messwert ' + (wmAus ? 'bad' : 'neutral')); setText('grenzwertWassermenge', data['Wassermenge']['Grenzwert']+' l', 'neutral maxwert'); var dfAus=data['Abschaltungsgrund']['Durchfluss']; setText('messungDurchfluss', data['Durchfluss']['Aktuell']+' l/h', 'messwert ' + (dfAus ? 'bad' : 'neutral')); setText('grenzwertDurchfluss', data['Durchfluss']['Grenzwert']+' l/h', 'neutral maxwert'); var entAus=data['Abschaltungsgrund']['Entnahmedauer']; var entnahmedauer=data['Entnahmezeit']['Aktuell']; setText('messungEntnahmezeit', (entnahmedauer<120 ? entnahmedauer+' s' : (entnahmedauer/60).toFixed(0)+' min'), 'messwert ' + (entAus ? 'bad' : 'neutral')); setText('grenzwertEntnahmezeit', data['Entnahmezeit']['Grenzwert']+' min', 'neutral maxwert'); var nass=data['Abschaltungsgrund']['Leckagesensor']; setText('messungLeckagesensor', nass ? 'nass' : 'trocken', 'messwert ' + (nass ? 'bad' : 'neutral')); setText('urlaubsmodus', data['Status']['Urlaubsmodus'] ? 'an' : 'aus'); setText('standbymodus', data['Status']['Standbymodus'] ? 'an' : 'aus');}; xhr.send(null); setTimeout(refresh, pollingInterval);}refresh(); setTimeout(refresh, pollingInterval); </script> </head> <body> <div id=\"heading\"> Wasserstop-Steuerung </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsstatus</p><table> <tr> <td><label>Kugelventil</label></td><td><p id=\"kugelventil\" class=\"good\"></p><p id=\"motorOeffnet\" class=\"pulsating hidden good\">(&ouml;ffnet)</p><p id=\"motorSchliesst\" class=\"pulsating hidden bad\">(schlie&szlig;t)</p></td></tr><tr> <td><label>Stromversorgung</label></td><td><p id=\"stromversorgung\" class=\"bad\"></p></td></tr><tr> <td><label>St&ouml;rung</label></td><td><p id=\"stoerung\" class=\"good\"></p></td></tr><tr> <td><label>Verbrauchsz&auml;hler</label></td><td><p id=\"verbrauchszaehler\" class=\"neutral\"></p></td></tr><tr> <td><label>Batteriezustand</label></td><td><p id=\"batteriezustand\" class=\"bad\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Messung / Abschaltgrund</p><table> <tr> <td><label>Wassermenge</label></td><td><p id=\"messungWassermenge\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertWassermenge\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Durchfluss</label></td><td><p id=\"messungDurchfluss\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertDurchfluss\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Entnahmezeit</label></td><td><p id=\"messungEntnahmezeit\" class=\"bad messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertEntnahmezeit\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Leckagesensor</label></td><td><p id=\"messungLeckagesensor\" class=\"neutral messwert\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsmodi</p><table> <tr> <td><label>Urlaubsmodus</label></td><td><p id=\"urlaubsmodus\" class=\"neutral\"></p></td></tr><tr> <td><label>Stand-by-Modus</label></td><td><p id=\"standbymodus\" class=\"neutral\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Ventilsteuerung</p><div class=\"buttonbar\"> <form method=\"POST\" action=\"http://%s/ventil-auf\" name=\"formVentilOeffnen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird ge&ouml;ffnet.')\"> <button type=\"submit\" name=\"ventilOeffnen\" class=\"open\">&Ouml;ffnen</button> </form> <form method=\"POST\" action=\"http://%s/ventil-zu\" name=\"formVentilSchliessen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird geschlossen.')\"> <button type=\"submit\" name=\"ventilSchliessen\" class=\"close\">Schlie&szlig;en</button> </form> </div><iframe name=\"hiddenFrame\" width=\"0\" height=\"0\" border=\"0\" style=\"display: none;\"></iframe> </div></body></html>");
+
+  PGM_P htmlTemplate = PSTR("<!DOCTYPE html><html lang=\"de\"> <head> <title>Wasserstop</title> <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/> <meta http-equiv=\"cache-control\" content=\"no-cache\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <meta name=\"apple-mobile-web-app-capable\" content=\"yes\"> <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"> <link rel=\"apple-touch-icon\" href=\"https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Stop_hand_nuvola_blue.svg/240px-Stop_hand_nuvola_blue.svg.png\"/> <style>BODY{font-family: calibri,sans-serif; margin: 0;}#heading{border-bottom: 1px solid #333; background-color: #000; color: #ddd; text-align: center; font-weight: bold; height: 1.5em; padding-top: 0.5em;}DIV.topic-box{border: 1px solid gray; border-radius: 5px; margin: 2em 3vw 0 3vw;}DIV.topic-box P.caption{margin: -0.7em 1em 0.5em 1em; padding-left: 0.5em; background: white; display: block; width: 82vw; white-space: nowrap; font-weight: bold;}DIV.topic-box TABLE{width: 100%%; padding-left: 1em; padding-bottom: 0.5em;}DIV.topic-box TABLE TD P{margin: 0.1em 0 0.1em 0; display: inline-grid;}DIV.topic-box TABLE TD P.messwert{width: 3.6em;}DIV.topic-box TABLE TD P.von{padding-left: 1em; padding-right: 1em;}DIV.topic-box TABLE TD:first-child{width: 40%%;}DIV.buttonbar{display: flex; flex-wrap: nowrap; align-items: center; justify-content: center;}DIV.buttonbar BUTTON{display: grid; align-items: center; justify-content: center; width: 30vw; height: 10vw; border-radius: 5px; margin-bottom: 1em;}DIV.buttonbar BUTTON.open{background-color: green; margin-right: 10vw;}DIV.buttonbar BUTTON.close{background-color: #a00; margin-left: 10vw;}.good{color: green;}.bad{color: red;}.neutral{color: black;}.pulsating{animation: pulsating 1.5s infinite;}@keyframes pulsating{0%%{opacity: 0.2;}50%%{opacity: 1.0;}100%%{opacity: 0.2;}}#motorOeffnet, #motorSchliesst{padding-left: 1em;}.hidden{display: none !important;}</style> <script type='text/javascript'> const pollingInterval=%ld; function setText(id, text, cssClass='neutral'){var e=document.getElementById(id); e.innerText=text; e.className=cssClass;}function setGoodBadText(id, isGood, goodText, badText){if (isGood){setText(id, goodText, 'good');}else{setText(id, badText, 'bad');}}function refresh(){var xhr=new XMLHttpRequest(); xhr.open('GET', '/all-data', true); xhr.timeout=pollingInterval - 100; xhr.overrideMimeType('application/json'); xhr.setRequestHeader('Content-Type', 'application/json'); xhr.onload=function (){var data=JSON.parse(this.responseText); var kvGeschlossen=data['Kugelventil']['Geschlossen']; setGoodBadText('kugelventil', !kvGeschlossen, 'offen', 'geschlossen'); var motorAn=data['Kugelventil']['Motor_an']; var eAuf=document.getElementById('motorOeffnet'); var eZu=document.getElementById('motorSchliesst'); eAuf.className='pulsating good ' + ((!motorAn || (motorAn && !kvGeschlossen)) ? 'hidden' : ''); eZu.className='pulsating bad ' + ((!motorAn || (motorAn && kvGeschlossen)) ? 'hidden' : ''); var quelle=(data['Stromversorgung']['Quelle']); setText('stromversorgung', quelle, (quelle=='Batterie') ? 'bad' : 'good'); setGoodBadText('stoerung', !data['Stoerung']['Aktuell_gestoert'], 'keine', 'gestört'); setText('verbrauchszaehler', (data['Status']['Gesamtwassermenge']['total']/1000).toFixed(1)+' m³'); var spannung=' ('+data['Stromversorgung']['Batteriespannung']+' V)'; setGoodBadText('batteriezustand', data['Stromversorgung']['Batterie_ok'], 'ok'+spannung, 'schwach'+spannung); var wmAus=data['Abschaltungsgrund']['Wassermenge']; setText('messungWassermenge', data['Wassermenge']['Aktuell']+' l', 'messwert ' + (wmAus ? 'bad' : 'neutral')); setText('grenzwertWassermenge', data['Wassermenge']['Grenzwert']+' l', 'neutral maxwert'); var dfAus=data['Abschaltungsgrund']['Durchfluss']; setText('messungDurchfluss', data['Durchfluss']['Aktuell']+' l/h', 'messwert ' + (dfAus ? 'bad' : 'neutral')); setText('grenzwertDurchfluss', data['Durchfluss']['Grenzwert']+' l/h', 'neutral maxwert'); var entAus=data['Abschaltungsgrund']['Entnahmedauer']; var entnahmedauer=data['Entnahmezeit']['Aktuell']; setText('messungEntnahmezeit', (entnahmedauer<360 ? entnahmedauer+' s' : (entnahmedauer/60).toFixed(0)+' min'), 'messwert ' + (entAus ? 'bad' : 'neutral')); setText('grenzwertEntnahmezeit', (data['Entnahmezeit']['Grenzwert']/60).toFixed(0)+' min', 'neutral maxwert'); var nass=data['Abschaltungsgrund']['Leckagesensor']; setText('messungLeckagesensor', nass ? 'nass' : 'trocken', 'messwert ' + (nass ? 'bad' : 'neutral')); setText('urlaubsmodus', data['Status']['Urlaubsmodus'] ? 'an' : 'aus'); setText('standbymodus', data['Status']['Standbymodus'] ? 'an' : 'aus');}; xhr.send(null); setTimeout(refresh, pollingInterval);}refresh(); setTimeout(refresh, pollingInterval); </script> </head> <body> <div id=\"heading\"> Wasserstop-Steuerung </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsstatus</p><table> <tr> <td><label>Kugelventil</label></td><td><p id=\"kugelventil\" class=\"good\"></p><p id=\"motorOeffnet\" class=\"pulsating hidden good\">(&ouml;ffnet)</p><p id=\"motorSchliesst\" class=\"pulsating hidden bad\">(schlie&szlig;t)</p></td></tr><tr> <td><label>Stromversorgung</label></td><td><p id=\"stromversorgung\" class=\"bad\"></p></td></tr><tr> <td><label>St&ouml;rung</label></td><td><p id=\"stoerung\" class=\"good\"></p></td></tr><tr> <td><label>Verbrauchsz&auml;hler</label></td><td><p id=\"verbrauchszaehler\" class=\"neutral\"></p></td></tr><tr> <td><label>Batteriezustand</label></td><td><p id=\"batteriezustand\" class=\"bad\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Messung / Abschaltgrund</p><table> <tr> <td><label>Wassermenge</label></td><td><p id=\"messungWassermenge\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertWassermenge\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Durchfluss</label></td><td><p id=\"messungDurchfluss\" class=\"neutral messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertDurchfluss\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Entnahmezeit</label></td><td><p id=\"messungEntnahmezeit\" class=\"bad messwert\"></p><p class=\"von\">von</p><p id=\"grenzwertEntnahmezeit\" class=\"neutral maxwert\"></p></td></tr><tr> <td><label>Leckagesensor</label></td><td><p id=\"messungLeckagesensor\" class=\"neutral messwert\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Betriebsmodi</p><table> <tr> <td><label>Urlaubsmodus</label></td><td><p id=\"urlaubsmodus\" class=\"neutral\"></p></td></tr><tr> <td><label>Stand-by-Modus</label></td><td><p id=\"standbymodus\" class=\"neutral\"></p></td></tr></table> </div><div class=\"topic-box\"> <p class=\"caption\">Ventilsteuerung</p><div class=\"buttonbar\"> <form method=\"POST\" action=\"http://%s/ventil-auf\" name=\"formVentilOeffnen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird ge&ouml;ffnet.')\"> <button type=\"submit\" name=\"ventilOeffnen\" class=\"open\">&Ouml;ffnen</button> </form> <form method=\"POST\" action=\"http://%s/ventil-zu\" name=\"formVentilSchliessen\" target=\"hiddenFrame\" onsubmit=\"alert('Wasserstop wird geschlossen.')\"> <button type=\"submit\" name=\"ventilSchliessen\" class=\"close\">Schlie&szlig;en</button> </form> </div><iframe name=\"hiddenFrame\" width=\"0\" height=\"0\" border=\"0\" style=\"display: none;\"></iframe> </div></body></html>");
 
   char ip[16];
   WiFi.localIP().toString().toCharArray(ip, 16);
 
   char *htmlOutputBuffer = new char[10000];
   snprintf_P(htmlOutputBuffer, 10000, htmlTemplate, WEBAPP_POLLING_INTERVAL, ip, ip);
-  
+
   httpRestServer.send(200, CT_TEXT_HTML, htmlOutputBuffer);
   free(htmlOutputBuffer);
 }
@@ -796,28 +796,28 @@ void restSetWasserzaehlerOffset() {
 
   StaticJsonDocument<JSON_DOCUMENT_CAPACITY> json;
   bool validJson = parseHttpBodyToJson(json);
-  
+
   if (validJson) {
     uint32_t value = json["value"];
 
-    if (0<=value && value<0xFFFFFFFF) { 
+    if (0<=value && value<0xFFFFFFFF) {
       uint8_t* b = rb[lastValidBufferIdx].buf;
       uint32_t currentWaterconsumption = 100 * (b[40] + (b[41] << 8) + (b[42] << 16) + (b[43] << 24));
       waterconsumptionOffset = value - currentWaterconsumption;
-      
+
       writeWaterconsumptionOffsetToEEPROM();
       httpRestServer.send(200, CT_TEXT_HTML, F("Water consumption offset value set."));
     } else {
-      httpRestServer.send(400, CT_TEXT_HTML, F("Setting the offset consumption only works with a 'value' greater than 0 liters and smaller than 4294967295 liters.")); 
+      httpRestServer.send(400, CT_TEXT_HTML, F("Setting the offset consumption only works with a 'value' greater than 0 liters and smaller than 4294967295 liters."));
     }
   } else {
-    httpRestServer.send(422, CT_TEXT_HTML, F("JSON in HTTP header invalid")); 
-  }  
+    httpRestServer.send(422, CT_TEXT_HTML, F("JSON in HTTP header invalid"));
+  }
 }
 
 void startRestService() {
   debugfln("Starting REST server");
-  
+
   httpRestServer.on("/", HTTP_GET, restGetRoot);
   httpRestServer.on("/all-data", HTTP_GET, restAllData);
   httpRestServer.on("/ventil-auf-zu", HTTP_POST, restVentilAufZu);
@@ -828,7 +828,7 @@ void startRestService() {
   httpRestServer.on("/restart", HTTP_POST, restRestart);
   httpRestServer.on("/webapp", HTTP_GET, restWebapp);
   httpRestServer.on("/set-wasserzaehler-offset", HTTP_POST, restSetWasserzaehlerOffset);
-  
+
   httpRestServer.begin();
   restServerRunning = true;
 }
@@ -846,7 +846,7 @@ void startRestService() {
 // ----------------------------------------------------------
 void setup() {
   Serial.begin(115200);
-  EEPROM.begin(128); 
+  EEPROM.begin(128);
   debugfln("\n Starting");
 
   // init serial connection to Wasserstop

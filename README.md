@@ -29,7 +29,7 @@ Upon first start you can see a new Wifi access point. Please connect to it. You'
 Displays a single web application (SWA). The web app is based on AJAX and perodically polls data from the /all-data endpoint (see above). On iOS this web app can be opened with Safari and an app icon can be placed on the home screen.
 
 ##### Look and feel of the webapp SWA on an iPhone:
-<img src="doc/example_webapp_screen.png" alt="Look and feel of the webapp SWA on an iPhone" width="200" />
+<img src="doc/example_webapp_screen.png" alt="Look and feel of the webapp SWA on an iPhone" width="300" />
 
 
 #### `/all-data` Read operational data from Wasserstop
@@ -72,6 +72,8 @@ If the valve in the Wasserstop is closed this command with open the valve. If th
 
 #### `/set-pushover-tokens` Set the app/user token required to send push notifications via Pushover
 The Wasserstop gateway supports sending push notifications via [Pushover.net](https://www.pushover.net) (commercial app, pay once).
+Notifcations look like this (a custom icon needs to be configured):
+<br /><img src="doc/example_pushover_notification.png" alt="Example push notification" width="300" />
 
 | Endpoint     	    | `/set-pushover-tokens`                                   	|
 |-----------------	|---------------------------------------------------------	|
@@ -132,6 +134,8 @@ When you've bought IDC header connectors (IDC = insulation-displacement contact)
 * Pin 3 -> TX
 * Pin 5 -> GND
 
+![D-Sub 9 cable pin connection](doc/dsub-9-cable-pin-connection.jpg)
+
 ### Connect to Wasserstop Unit
 According to [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/themes/judo-2019//data/8140001/manuals/1701936.pdf) you first need to remove the power plug. Then you can connect your DIY gateway with the RS-232 header pins of the Wasserstop unit. Eventually, insert the unit's power plug again.
 
@@ -145,13 +149,8 @@ For the beginning all open to-dos are listed here:
 * Soft-limits: if none of the fixed settings suits your needs a soft limit allows for choosing different trigger limits.
 * Added dedicated LED that signals an established WiFi connection
 
-#### Missing endpoints
-* Add `/set-wasserzaehler-offset` POST endpoint to map a value of the internal volume counter to the physical water meter.
-* Add `/wasserzaehler` GET endpoint to retrieve the value on the water meter (if offset has been set properly)
-
 #### Security
 Currently none of the calls is secured. Hence, every client in the WiFi may control the Wasserstop unit. A shared key that is transferred in an HTTP header *similar* to JWT tokens may be a viable solution.
-
 
 ### Used Tooling
 * Arduino IDE, 1.8.13, https://www.arduino.cc/en/Main/Software
@@ -170,5 +169,5 @@ Currently none of the calls is secured. Hence, every client in the WiFi may cont
 * For the sake of simplicity, a passive HTTP REST interface has been chosen over an active MQTT.
 
 ## Links / References
-* [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/themes/judo-2019//data/8140001/manuals/1701936.pdf)
-* [Judo ZEWA Wasserstop Einbau- und Betriebsanleitung](https://judo.eu/app/downloads/files/de/8140001/manuals/Art-Nr_1701862_ZEWA-WASSERSTOP.pdf)
+* [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/downloads/files/de/8140001/manuals/1701936.pdf)
+* [Judo ZEWA Wasserstop Einbau- und Betriebsanleitung](https://judo.eu/app/downloads/files/de/8140001/manuals/1701862_202002.pdf)
