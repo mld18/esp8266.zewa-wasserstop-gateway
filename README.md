@@ -12,7 +12,7 @@ Although already stated in the appended [License file](./LICENSE) let's be cryst
 * Please do *not* contact me or any other committer of this project for sales, consulting or advice like "Where can I buy XYZ?", "Can I purchase a cable from you?", etc.
 
 ### Collaboration and Ideas are welcome
-After all the DON'Ts above let's also be clear: if you have specific questions, ideas or a feature request you are highly welcome to join and contribute.
+After all the DON'Ts above let's also be clear: if you're having trouble to get this project up and running, you may of course send me a message. If you have specific questions, ideas or a feature request you are highly welcome to join and contribute.
 
 
 ## Usage
