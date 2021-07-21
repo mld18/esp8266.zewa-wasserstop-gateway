@@ -170,4 +170,4 @@ Currently none of the calls is secured. Hence, every client in the WiFi may cont
 
 ## Links / References
 * [Beiblatt für RS-232-Kabel zum Judo Zewa Wasserstop](https://judo.eu/app/downloads/files/de/8140001/manuals/1701936.pdf)
-* [Judo ZEWA Wasserstop Einbau- und Betriebsanleitung](https://judo.eu/app/downloads/files/de/8140001/manuals/1701862_202002.pdf)
+* [Judo ZEWA Wasserstop Einbau- und Betriebsanleitung](https://www.judo-online.com/Betriebsanleitungen/DE/Leckageschutz/Art-Nr_1701862_ZEWA-WASSERSTOP.pdf)
